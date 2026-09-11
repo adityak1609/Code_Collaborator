@@ -1,0 +1,25 @@
+# Concord — Docker Compose dev overrides
+# Hot reload for backend, Vite HMR for frontend.
+
+services:
+  migrate:
+    volumes:
+      - ./backend:/app
+
+  backend:
+    build: ./backend
+    volumes:
+      - ./backend:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --workers 1
+    environment:
+      DATABASE_URL: postgresql+psycopg://concord:concord@postgres:5432/concord
+      SYNC_DATABASE_URL: postgresql+psycopg://concord:concord@postgres:5432/concord
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: dev-secret-key-not-for-production
+
+  frontend:
+    build: ./frontend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm run dev -- --host 0.0.0.0
