@@ -8,12 +8,12 @@ authorization revocation for connected clients.
 
 ## Current status
 
-- Milestone 1: functional vertical slice; automated protocol and business-rule
-  tests plus a live three-client smoke test are available.
+- Milestone 1: functional vertical slice; backend, frontend component, browser
+  E2E, and live three-client collaboration tests are available.
 - Milestone 2: execution schema/state machine only. The queue, worker, sandbox,
   streaming output, and terminal UI are not implemented yet.
-- Milestone 3: snapshot schema only. Snapshot APIs, broader integration tests,
-  CI, benchmarks, and horizontal-scaling experiments remain.
+- Milestone 3: snapshot schema only. Snapshot APIs, CI, benchmarks, expanded
+  test coverage, and horizontal-scaling experiments remain.
 
 Collaboration deliberately runs in one backend process. Its in-memory Y.Doc is
 authoritative while users are connected, periodically checkpointed to Redis for
@@ -66,6 +66,7 @@ Frontend:
 cd frontend
 npm.cmd run build
 npm.cmd run lint
+npm.cmd test
 ```
 
 With the Compose stack running, exercise auth, RBAC, three simultaneous Yjs
@@ -76,9 +77,12 @@ demotion, removal, and session-close enforcement:
 ```powershell
 cd frontend
 npm.cmd run smoke:collaboration
+npx.cmd playwright install chromium
+npm.cmd run test:e2e
 ```
 
-The smoke test creates uniquely named users and closes its session at the end.
+The smoke and browser E2E tests create uniquely named users. The smoke test
+closes its session at the end.
 
 ## Configuration
 
