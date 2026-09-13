@@ -12,8 +12,9 @@ not download the editor bundle.
 
 - Milestone 1: functional vertical slice; backend, frontend component, browser
   E2E, and live three-client collaboration tests are available.
-- Milestone 2: execution schema/state machine only. The queue, worker, sandbox,
-  streaming output, and terminal UI are not implemented yet.
+- Milestone 2: execution state machine, persisted run/history/detail/cancel API,
+  and Redis job/cancellation transport are implemented. The worker, sandbox,
+  streaming output, and terminal UI are next.
 - Milestone 3: snapshot schema only. Snapshot APIs, CI, benchmarks, expanded
   test coverage, and horizontal-scaling experiments remain.
 
@@ -101,7 +102,6 @@ Recovery checkpoints expire after seven days by default; configure
 
 ## Next milestone
 
-Build Milestone 2 as a tested vertical slice: execution API and transition
-service, Redis queue, isolated Docker worker for Python/JavaScript/C++, live
-output events, cancellation/timeout behavior, history endpoints, and the
-frontend output panel.
+Continue Milestone 2 with the isolated Docker worker for
+Python/JavaScript/C++, live output events, worker-side cancellation/timeout
+behavior, and the frontend output panel.

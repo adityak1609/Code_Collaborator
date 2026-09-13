@@ -17,6 +17,8 @@ from app.collaboration.document import doc_manager
 from app.collaboration.websocket import maintain_document_checkpoint
 from app.collaboration.websocket import router as ws_router
 from app.config import settings
+from app.execution.queue import execution_queue
+from app.execution.router import router as execution_router
 from app.sessions.router import router as sessions_router
 
 logging.basicConfig(
@@ -103,7 +105,10 @@ async def lifespan(app: FastAPI):
                             session_id,
                         )
             finally:
-                await doc_manager.close()
+                try:
+                    await doc_manager.close()
+                finally:
+                    await execution_queue.close()
         logger.info("Concord shut down cleanly.")
 
 
@@ -126,6 +131,7 @@ app.add_middleware(
 # ── Routers ───────────────────────────────────────────────────
 app.include_router(auth_router)
 app.include_router(sessions_router)
+app.include_router(execution_router)
 app.include_router(ws_router)
 
 
