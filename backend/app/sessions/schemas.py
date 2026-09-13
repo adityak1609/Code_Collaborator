@@ -2,8 +2,9 @@
 
 import uuid
 from datetime import datetime
+from typing import Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.models import LanguageEnum, RoleEnum
 
@@ -44,8 +45,15 @@ class DocumentSaveResponse(BaseModel):
 
 
 class AddMemberRequest(BaseModel):
-    user_id: uuid.UUID
+    user_id: uuid.UUID | None = None
+    username: str | None = Field(default=None, min_length=3, max_length=64)
     role: RoleEnum = RoleEnum.viewer
+
+    @model_validator(mode="after")
+    def require_one_user_identifier(self) -> Self:
+        if (self.user_id is None) == (self.username is None):
+            raise ValueError("Provide exactly one of user_id or username")
+        return self
 
 
 class UpdateMemberRoleRequest(BaseModel):

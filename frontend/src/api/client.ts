@@ -74,8 +74,8 @@ export const sessionsApi = {
     }),
   create: (name: string, language: string) =>
     api.post<Session>('/sessions', { name, language }),
-  addMember: (sessionId: string, userId: string, role: string) =>
-    api.post(`/sessions/${sessionId}/members`, { user_id: userId, role }),
+  addMember: (sessionId: string, username: string, role: 'viewer' | 'editor') =>
+    api.post(`/sessions/${sessionId}/members`, { username, role }),
   updateRole: (sessionId: string, userId: string, role: string) =>
     api.patch(`/sessions/${sessionId}/members/${userId}`, { role }),
   removeMember: (sessionId: string, userId: string) =>

@@ -2,9 +2,10 @@
 
 Concord is a collaborative code editor built with React, Monaco, Yjs, FastAPI,
 pycrdt, PostgreSQL, and Redis. The current implementation focuses on Milestone 1:
-authenticated sessions, role-based access, real-time editing, awareness/presence,
-reconnection, Redis recovery checkpoints, explicit PostgreSQL saves, and live
-authorization revocation for connected clients.
+authenticated sessions, username-based member management, role-based access,
+real-time editing, awareness/presence, reconnection, Redis recovery checkpoints,
+explicit PostgreSQL saves, and live authorization revocation for connected
+clients.
 
 ## Current status
 
@@ -81,8 +82,9 @@ npx.cmd playwright install chromium
 npm.cmd run test:e2e
 ```
 
-The smoke and browser E2E tests create uniquely named users. The smoke test
-closes its session at the end.
+The smoke and browser E2E tests create uniquely named users and close their
+temporary sessions. The browser flow also verifies username invitations, role
+changes, and member removal.
 
 ## Configuration
 

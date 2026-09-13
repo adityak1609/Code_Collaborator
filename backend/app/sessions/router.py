@@ -82,6 +82,21 @@ async def _require_current_editor(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
 
 
+async def _resolve_member_user_id(
+    db: AsyncSession,
+    body: AddMemberRequest,
+) -> uuid.UUID:
+    """Resolve a username invitation while preserving the ID-based API."""
+    if body.user_id is not None:
+        return body.user_id
+
+    result = await db.execute(select(User.id).where(User.username == body.username))
+    user_id = result.scalar_one_or_none()
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user_id
+
+
 @router.post(
     "",
     response_model=SessionResponse,
@@ -230,17 +245,19 @@ async def add_member_endpoint(
     current_user: User = Depends(RoleChecker(min_role=RoleEnum.owner)),
     db: AsyncSession = Depends(get_db),
 ):
-    """Add a user to the session (owner only)."""
+    """Add a user by ID or username to the session (owner only)."""
+    user_id = await _resolve_member_user_id(db, body)
     try:
         member = await add_member(
             db=db,
             session_id=session_id,
-            user_id=body.user_id,
+            user_id=user_id,
             role=body.role,
         )
         return {
             "detail": "Member added",
             "user_id": str(member.user_id),
+            "username": body.username,
             "role": member.role.value,
         }
     except SessionServiceError as error:

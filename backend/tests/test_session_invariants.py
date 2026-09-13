@@ -6,11 +6,17 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException, status
+from pydantic import ValidationError
 
 from app.auth import dependencies as auth_dependencies
 from app.auth.dependencies import RoleChecker
 from app.models import RoleEnum
-from app.sessions.router import _raise_http_error, _require_current_editor
+from app.sessions.router import (
+    _raise_http_error,
+    _require_current_editor,
+    _resolve_member_user_id,
+)
+from app.sessions.schemas import AddMemberRequest
 from app.sessions.service import (
     SessionConflictError,
     SessionInactiveError,
@@ -207,3 +213,44 @@ async def test_current_editor_recheck_accepts_write_roles(role):
     await _require_current_editor(db, uuid.uuid4(), uuid.uuid4())
 
     db.execute.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"user_id": str(uuid.uuid4()), "username": "ada"},
+    ],
+)
+def test_add_member_request_requires_one_identifier(payload):
+    with pytest.raises(ValidationError, match="exactly one"):
+        AddMemberRequest.model_validate(payload)
+
+
+@pytest.mark.asyncio
+async def test_member_invitation_resolves_username():
+    user_id = uuid.uuid4()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = user_id
+    db = SimpleNamespace(execute=AsyncMock(return_value=result))
+
+    resolved = await _resolve_member_user_id(
+        db,
+        AddMemberRequest(username="ada", role=RoleEnum.editor),
+    )
+
+    assert resolved == user_id
+    db.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_member_invitation_rejects_unknown_username():
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    db = SimpleNamespace(execute=AsyncMock(return_value=result))
+
+    with pytest.raises(HTTPException) as caught:
+        await _resolve_member_user_id(db, AddMemberRequest(username="missing"))
+
+    assert caught.value.status_code == status.HTTP_404_NOT_FOUND
+    assert caught.value.detail == "User not found"

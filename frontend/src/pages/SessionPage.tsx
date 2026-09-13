@@ -12,6 +12,8 @@ import type {
 } from '../types/collaboration';
 
 type SaveStatus = 'idle' | 'unsaved' | 'saving' | 'saved' | 'error';
+type AssignableRole = 'viewer' | 'editor';
+type MemberFeedback = { kind: 'success' | 'error'; message: string };
 
 export function SessionPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -27,6 +29,8 @@ export function SessionPage() {
   const [documentReady, setDocumentReady] = useState(false);
   const [editorEpoch, setEditorEpoch] = useState(0);
   const [authorizationRefreshing, setAuthorizationRefreshing] = useState(false);
+  const [memberActionKey, setMemberActionKey] = useState<string | null>(null);
+  const [memberFeedback, setMemberFeedback] = useState<MemberFeedback | null>(null);
   const getDocumentStateRef = useRef<(() => Uint8Array) | null>(null);
   const documentVersionRef = useRef(0);
   const saveRequestRef = useRef(0);
@@ -140,6 +144,66 @@ export function SessionPage() {
       if (saveRequestRef.current === requestId) saveInFlightRef.current = false;
     }
   }, [effectiveRole, sessionId]);
+
+  const runMemberAction = useCallback(
+    async (
+      actionKey: string,
+      action: () => Promise<unknown>,
+      successMessage: string,
+    ) => {
+      setMemberActionKey(actionKey);
+      setMemberFeedback(null);
+      try {
+        await action();
+        await fetchSession(false);
+        setMemberFeedback({ kind: 'success', message: successMessage });
+        return true;
+      } catch (err: any) {
+        const message = err.response?.data?.detail || 'Member update failed';
+        setMemberFeedback({ kind: 'error', message });
+        return false;
+      } finally {
+        setMemberActionKey(null);
+      }
+    },
+    [fetchSession],
+  );
+
+  const handleAddMember = useCallback(
+    async (username: string, role: AssignableRole) => {
+      if (!sessionId) return false;
+      return runMemberAction(
+        'invite',
+        () => sessionsApi.addMember(sessionId, username, role),
+        `${username} added as ${role}.`,
+      );
+    },
+    [runMemberAction, sessionId],
+  );
+
+  const handleUpdateRole = useCallback(
+    async (userId: string, role: AssignableRole) => {
+      if (!sessionId) return false;
+      return runMemberAction(
+        `role:${userId}`,
+        () => sessionsApi.updateRole(sessionId, userId, role),
+        `Member role changed to ${role}.`,
+      );
+    },
+    [runMemberAction, sessionId],
+  );
+
+  const handleRemoveMember = useCallback(
+    async (userId: string) => {
+      if (!sessionId) return false;
+      return runMemberAction(
+        `remove:${userId}`,
+        () => sessionsApi.removeMember(sessionId, userId),
+        'Member removed.',
+      );
+    },
+    [runMemberAction, sessionId],
+  );
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -255,6 +319,12 @@ export function SessionPage() {
             members={session.members}
             onlineUsers={onlineUsers}
             currentUserId={user?.id || ''}
+            canManage={effectiveRole === 'owner'}
+            actionKey={memberActionKey}
+            feedback={memberFeedback}
+            onAddMember={handleAddMember}
+            onUpdateRole={handleUpdateRole}
+            onRemoveMember={handleRemoveMember}
           />
         </div>
       </div>

@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { MemberList } from './MemberList';
 
 const joinedAt = '2026-09-13T08:00:00Z';
@@ -42,5 +42,55 @@ describe('MemberList', () => {
     const dots = container.querySelectorAll<HTMLElement>('.presence-dot');
     expect(dots[0]).toHaveStyle({ backgroundColor: '#ff00aa', opacity: '1' });
     expect(dots[1]).toHaveStyle({ backgroundColor: '#6e7681', opacity: '0.4' });
+  });
+
+  it('lets an owner invite, change roles, and remove non-owner members', async () => {
+    const onAddMember = vi.fn().mockResolvedValue(true);
+    const onUpdateRole = vi.fn().mockResolvedValue(true);
+    const onRemoveMember = vi.fn().mockResolvedValue(true);
+    render(
+      <MemberList
+        currentUserId="owner-id"
+        canManage
+        members={[
+          {
+            user_id: 'owner-id',
+            username: 'ada',
+            role: 'owner',
+            joined_at: joinedAt,
+          },
+          {
+            user_id: 'editor-id',
+            username: 'grace',
+            role: 'editor',
+            joined_at: joinedAt,
+          },
+        ]}
+        onlineUsers={[]}
+        onAddMember={onAddMember}
+        onUpdateRole={onUpdateRole}
+        onRemoveMember={onRemoveMember}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Invite by username'), {
+      target: { value: 'linus' },
+    });
+    fireEvent.change(screen.getByLabelText('Invitation role'), {
+      target: { value: 'viewer' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add member' }));
+    await waitFor(() =>
+      expect(onAddMember).toHaveBeenCalledWith('linus', 'viewer'),
+    );
+
+    fireEvent.change(screen.getByLabelText('Role for grace'), {
+      target: { value: 'viewer' },
+    });
+    expect(onUpdateRole).toHaveBeenCalledWith('editor-id', 'viewer');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove grace' }));
+    expect(onRemoveMember).toHaveBeenCalledWith('editor-id');
+    expect(screen.queryByRole('button', { name: 'Remove ada' })).toBeNull();
   });
 });
