@@ -1,8 +1,14 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
-import { SessionPage } from './pages/SessionPage';
+
+const SessionPage = lazy(() =>
+  import('./pages/SessionPage').then((module) => ({
+    default: module.SessionPage,
+  })),
+);
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -34,7 +40,19 @@ function App() {
           path="/session/:sessionId"
           element={
             <ProtectedRoute>
-              <SessionPage />
+              <Suspense
+                fallback={
+                  <div className="workspace">
+                    <div className="flex justify-center items-center flex-1">
+                      <p style={{ color: 'var(--text-secondary)' }}>
+                        Loading editor...
+                      </p>
+                    </div>
+                  </div>
+                }
+              >
+                <SessionPage />
+              </Suspense>
             </ProtectedRoute>
           }
         />

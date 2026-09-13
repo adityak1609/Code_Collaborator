@@ -5,7 +5,8 @@ pycrdt, PostgreSQL, and Redis. The current implementation focuses on Milestone 1
 authenticated sessions, username-based member management, role-based access,
 real-time editing, awareness/presence, reconnection, Redis recovery checkpoints,
 explicit PostgreSQL saves, and live authorization revocation for connected
-clients.
+clients. The Monaco/Yjs workspace is lazy-loaded so auth and dashboard users do
+not download the editor bundle.
 
 ## Current status
 
