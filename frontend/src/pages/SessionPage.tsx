@@ -1,11 +1,17 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { sessionsApi } from '../api/client';
 import type { SessionDetail } from '../api/client';
 import { useAuthStore } from '../store/authStore';
 import { CollaborativeEditor } from '../components/Editor/CollaborativeEditor';
 import { MemberList } from '../components/Sidebar/MemberList';
-import type { ConnectionStatus, PresenceUser } from '../types/collaboration';
+import type {
+  ConnectionStatus,
+  DocumentSaveStatusEvent,
+  PresenceUser,
+} from '../types/collaboration';
+
+type SaveStatus = 'idle' | 'unsaved' | 'saving' | 'saved' | 'error';
 
 export function SessionPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -16,34 +22,46 @@ export function SessionPage() {
   const [error, setError] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
   const [onlineUsers, setOnlineUsers] = useState<PresenceUser[]>([]);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [documentReady, setDocumentReady] = useState(false);
+  const [editorEpoch, setEditorEpoch] = useState(0);
+  const [authorizationRefreshing, setAuthorizationRefreshing] = useState(false);
+  const getDocumentStateRef = useRef<(() => Uint8Array) | null>(null);
+  const documentVersionRef = useRef(0);
+  const saveRequestRef = useRef(0);
+  const saveInFlightRef = useRef(false);
 
   // Determine current user's role
   const myRole = session?.members.find((m) => m.user_id === user?.id)?.role || 'viewer';
+  const effectiveRole = authorizationRefreshing ? 'viewer' : myRole;
 
-  useEffect(() => {
+  const fetchSession = useCallback(async (finishInitialLoading: boolean) => {
     if (!sessionId) return;
 
-    const fetchSession = async () => {
-      try {
-        const res = await sessionsApi.get(sessionId);
-        setSession(res.data);
-      } catch (err: any) {
-        if (err.response?.status === 403) {
-          setError('You do not have access to this session.');
-        } else if (err.response?.status === 404) {
-          setError('Session not found.');
-        } else if (err.response?.status === 410) {
-          setError('This session has been closed.');
-        } else {
-          setError('Failed to load session.');
-        }
-      } finally {
-        setLoading(false);
+    try {
+      const res = await sessionsApi.get(sessionId);
+      setSession(res.data);
+      setError(null);
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        setError('You do not have access to this session.');
+      } else if (err.response?.status === 404) {
+        setError('Session not found.');
+      } else if (err.response?.status === 410) {
+        setError('This session has been closed.');
+      } else {
+        setError('Failed to load session.');
       }
-    };
-
-    fetchSession();
+    } finally {
+      if (finishInitialLoading) setLoading(false);
+    }
   }, [sessionId]);
+
+  useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- state changes occur after the awaited HTTP request.
+    void fetchSession(true);
+  }, [fetchSession]);
 
   const handleConnectionChange = useCallback(
     (status: ConnectionStatus) => {
@@ -55,6 +73,84 @@ export function SessionPage() {
   const handlePresenceUpdate = useCallback((users: PresenceUser[]) => {
     setOnlineUsers(users);
   }, []);
+
+  const handleAuthorizationChange = useCallback(() => {
+    // Drop the old provider/Y.Doc immediately. It may contain a local update
+    // rejected after a demotion and CRDT synchronization cannot remove it.
+    setAuthorizationRefreshing(true);
+    setEditorEpoch((epoch) => epoch + 1);
+    getDocumentStateRef.current = null;
+    documentVersionRef.current = 0;
+    saveRequestRef.current += 1;
+    saveInFlightRef.current = false;
+    setDocumentReady(false);
+    setSaveStatus('idle');
+    void fetchSession(false).finally(() => setAuthorizationRefreshing(false));
+  }, [fetchSession]);
+
+  const handleDocumentReady = useCallback(
+    (getState: (() => Uint8Array) | null) => {
+      getDocumentStateRef.current = getState;
+      setDocumentReady(getState !== null);
+    },
+    []
+  );
+
+  const handleDocumentChange = useCallback(() => {
+    documentVersionRef.current += 1;
+    setSaveStatus((current) => current === 'saving' ? current : 'unsaved');
+  }, []);
+
+  const handleDocumentSaveStatus = useCallback((status: DocumentSaveStatusEvent) => {
+    setLastSavedAt(status.saved_at);
+    const isSaved = !status.dirty && status.matchesCurrentDocument;
+    setSaveStatus(() => {
+      // Let an in-flight HTTP save finish its version check before a stale or
+      // incomplete status frame can replace the progress indicator.
+      if (saveInFlightRef.current) return 'saving';
+      return isSaved ? 'saved' : 'unsaved';
+    });
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    if (!sessionId || effectiveRole === 'viewer' || saveInFlightRef.current) return;
+
+    const getDocumentState = getDocumentStateRef.current;
+    if (!getDocumentState) {
+      setSaveStatus('error');
+      return;
+    }
+
+    const versionAtSave = documentVersionRef.current;
+    const requestId = ++saveRequestRef.current;
+    saveInFlightRef.current = true;
+    setSaveStatus('saving');
+    try {
+      const response = await sessionsApi.save(sessionId, getDocumentState());
+      if (saveRequestRef.current !== requestId) return;
+      setLastSavedAt(response.data.saved_at);
+      setSaveStatus(
+        !response.data.dirty && documentVersionRef.current === versionAtSave
+          ? 'saved'
+          : 'unsaved'
+      );
+    } catch {
+      if (saveRequestRef.current === requestId) setSaveStatus('error');
+    } finally {
+      if (saveRequestRef.current === requestId) saveInFlightRef.current = false;
+    }
+  }, [effectiveRole, sessionId]);
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        void handleSave();
+      }
+    };
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, [handleSave]);
 
   if (loading) {
     return (
@@ -103,8 +199,31 @@ export function SessionPage() {
           </span>
         </div>
         <div className="flex items-center gap-sm">
-          <span className={`badge badge-${myRole}`}>{myRole}</span>
-          {myRole === 'viewer' && (
+          {effectiveRole !== 'viewer' && (
+            <>
+              <span className={`save-status save-status-${saveStatus}`}>
+                {saveStatus === 'saving' && 'Saving...'}
+                {saveStatus === 'saved' && (lastSavedAt
+                  ? `Saved ${new Date(lastSavedAt).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}`
+                  : 'Saved')}
+                {saveStatus === 'unsaved' && 'Unsaved changes'}
+                {saveStatus === 'error' && 'Save failed'}
+              </span>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => void handleSave()}
+                disabled={saveStatus === 'saving' || !documentReady}
+                title="Save to PostgreSQL (Ctrl/Cmd+S)"
+              >
+                {saveStatus === 'saving' ? 'Saving...' : 'Save'}
+              </button>
+            </>
+          )}
+          <span className={`badge badge-${effectiveRole}`}>{effectiveRole}</span>
+          {effectiveRole === 'viewer' && (
             <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
               Read-only
             </span>
@@ -117,11 +236,16 @@ export function SessionPage() {
         {/* Editor panel */}
         <div className="editor-panel">
           <CollaborativeEditor
+            key={`${sessionId}:${editorEpoch}`}
             sessionId={sessionId!}
             language={session.language}
-            role={myRole}
+            role={effectiveRole}
             onConnectionChange={handleConnectionChange}
             onPresenceUpdate={handlePresenceUpdate}
+            onDocumentReady={handleDocumentReady}
+            onDocumentChange={handleDocumentChange}
+            onDocumentSaveStatus={handleDocumentSaveStatus}
+            onAuthorizationChange={handleAuthorizationChange}
           />
         </div>
 

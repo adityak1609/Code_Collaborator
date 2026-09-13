@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth.router import router as auth_router
 from app.collaboration.document import doc_manager
+from app.collaboration.websocket import maintain_document_checkpoint
 from app.collaboration.websocket import router as ws_router
 from app.config import settings
 from app.sessions.router import router as sessions_router
@@ -45,16 +46,24 @@ for logger_name in ("uvicorn.error", "uvicorn.access"):
     logging.getLogger(logger_name).addFilter(_RedactTokenQueryFilter())
 
 
-async def _periodic_crdt_flush():
-    """Background task: flush all active Y.Docs to PostgreSQL periodically."""
-    while True:
-        await asyncio.sleep(settings.crdt_flush_interval_seconds)
+async def _periodic_crdt_flush(stop_event: asyncio.Event):
+    """Background task: checkpoint all active Y.Docs to Redis periodically."""
+    while not stop_event.is_set():
+        try:
+            await asyncio.wait_for(
+                stop_event.wait(),
+                timeout=settings.crdt_flush_interval_seconds,
+            )
+        except TimeoutError:
+            pass
+        if stop_event.is_set():
+            break
         for session_id in doc_manager.active_sessions:
             try:
-                await doc_manager.persist_to_db(session_id)
+                await maintain_document_checkpoint(session_id)
             except Exception:
                 logger.exception(
-                    "Failed periodic CRDT flush for session %s", session_id
+                    "Failed periodic CRDT checkpoint for session %s", session_id
                 )
 
 
@@ -64,23 +73,38 @@ async def lifespan(app: FastAPI):
     logger.info("Concord starting up…")
 
     # Start periodic CRDT flush
-    flush_task = asyncio.create_task(_periodic_crdt_flush())
+    flush_stop = asyncio.Event()
+    flush_task = asyncio.create_task(_periodic_crdt_flush(flush_stop))
     logger.info(
         "CRDT flush task started (interval=%ds)",
         settings.crdt_flush_interval_seconds,
     )
 
-    yield
-
-    # Shutdown: persist all active documents
-    logger.info("Shutting down — persisting active documents…")
-    flush_task.cancel()
-    for session_id in doc_manager.active_sessions:
+    try:
+        yield
+    finally:
+        # Shutdown: checkpoint active documents without changing explicit saves.
+        # The finally block also runs when application lifespan exits because of
+        # an exception, so Redis is not leaked and recovery gets a final chance.
+        logger.info("Shutting down — checkpointing active documents…")
+        flush_stop.set()
         try:
-            await doc_manager.persist_to_db(session_id)
-        except Exception:
-            logger.exception("Failed to persist session %s on shutdown", session_id)
-    logger.info("Concord shut down cleanly.")
+            # Drain an in-flight Redis write before issuing the final snapshot;
+            # cancelling it would make server-side completion order ambiguous.
+            await flush_task
+        finally:
+            try:
+                for session_id in doc_manager.active_sessions:
+                    try:
+                        await doc_manager.checkpoint_to_redis(session_id)
+                    except Exception:
+                        logger.exception(
+                            "Failed to checkpoint session %s on shutdown",
+                            session_id,
+                        )
+            finally:
+                await doc_manager.close()
+        logger.info("Concord shut down cleanly.")
 
 
 app = FastAPI(

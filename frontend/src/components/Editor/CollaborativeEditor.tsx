@@ -10,13 +10,19 @@
 import { useEffect, useRef, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
 import type { OnMount } from '@monaco-editor/react';
+import * as decoding from 'lib0/decoding';
 import * as Y from 'yjs';
 import * as authProtocol from 'y-protocols/auth';
 import { messageAuth, WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
 import { WS_URL } from '../../config';
 import { useAuthStore } from '../../store/authStore';
-import type { ConnectionStatus, PresenceUser } from '../../types/collaboration';
+import type {
+  ConnectionStatus,
+  DocumentSavedEvent,
+  DocumentSaveStatusEvent,
+  PresenceUser,
+} from '../../types/collaboration';
 
 interface Props {
   sessionId: string;
@@ -24,6 +30,10 @@ interface Props {
   role: 'viewer' | 'editor' | 'owner';
   onConnectionChange?: (status: ConnectionStatus) => void;
   onPresenceUpdate?: (users: PresenceUser[]) => void;
+  onDocumentReady?: (getState: (() => Uint8Array) | null) => void;
+  onDocumentChange?: () => void;
+  onDocumentSaveStatus?: (status: DocumentSaveStatusEvent) => void;
+  onAuthorizationChange?: () => void;
 }
 
 // Map Concord language names to Monaco language IDs
@@ -44,6 +54,9 @@ const PRESENCE_COLORS = [
   '#e3b341',
 ] as const;
 
+const MESSAGE_DOCUMENT_SAVED = 4;
+const AUTHORIZATION_CLOSE_CODES = new Set([4001, 4403, 4410]);
+
 function presenceColorFor(userId: string) {
   let hash = 0;
   for (const character of userId) {
@@ -61,12 +74,36 @@ function isPresenceUser(value: unknown): value is PresenceUser {
     typeof candidate.userId === 'string';
 }
 
+function isDocumentSavedEvent(value: unknown): value is DocumentSavedEvent {
+  if (!value || typeof value !== 'object') return false;
+
+  const candidate = value as Partial<DocumentSavedEvent>;
+  return candidate.type === 'document_saved' &&
+    typeof candidate.dirty === 'boolean' &&
+    (candidate.saved_at === null || typeof candidate.saved_at === 'string') &&
+    (candidate.state_vector === null || typeof candidate.state_vector === 'string') &&
+    typeof candidate.state_hash === 'string' &&
+    (candidate.saved_by === null || typeof candidate.saved_by === 'string');
+}
+
+async function documentStateHash(ydoc: Y.Doc) {
+  const state = Uint8Array.from(Y.encodeStateAsUpdate(ydoc));
+  const digest = await window.crypto.subtle.digest('SHA-256', state.buffer);
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, '0')
+  ).join('');
+}
+
 export function CollaborativeEditor({
   sessionId,
   language,
   role,
   onConnectionChange,
   onPresenceUpdate,
+  onDocumentReady,
+  onDocumentChange,
+  onDocumentSaveStatus,
+  onAuthorizationChange,
 }: Props) {
   const token = useAuthStore((s) => s.token);
   const user = useAuthStore((s) => s.user);
@@ -74,6 +111,7 @@ export function CollaborativeEditor({
   const providerRef = useRef<WebsocketProvider | null>(null);
   const bindingRef = useRef<MonacoBinding | null>(null);
   const presenceCleanupRef = useRef<(() => void) | null>(null);
+  const documentCleanupRef = useRef<(() => void) | null>(null);
 
   const handleEditorMount: OnMount = useCallback(
     (editor) => {
@@ -90,6 +128,78 @@ export function CollaborativeEditor({
         maxBackoffTime: 30_000,
       });
       providerRef.current = provider;
+
+      const previousSaveStatusHandler = provider.messageHandlers[MESSAGE_DOCUMENT_SAVED];
+      let latestSaveStatus: DocumentSavedEvent | null = null;
+      let comparisonVersion = 0;
+      const publishSaveStatus = () => {
+        if (!latestSaveStatus) return;
+        const status = latestSaveStatus;
+        const version = ++comparisonVersion;
+        void documentStateHash(ydoc)
+          .then((stateHash) => {
+            if (version !== comparisonVersion || latestSaveStatus !== status) return;
+            onDocumentSaveStatus?.({
+              ...status,
+              matchesCurrentDocument: stateHash === status.state_hash,
+            });
+          })
+          .catch(() => {
+            if (version !== comparisonVersion || latestSaveStatus !== status) return;
+            console.warn('Unable to compare the current document save state.');
+          });
+      };
+
+      provider.messageHandlers[MESSAGE_DOCUMENT_SAVED] = (_encoder, decoder) => {
+        try {
+          const message = JSON.parse(decoding.readVarString(decoder));
+          if (!isDocumentSavedEvent(message)) {
+            console.warn('Ignoring invalid document save status message.');
+            return;
+          }
+          latestSaveStatus = message;
+          publishSaveStatus();
+        } catch {
+          console.warn('Ignoring malformed document save status message.');
+        }
+      };
+
+      // Export state only after the initial handshake, so Save cannot race an
+      // empty pre-sync document. Initial state delivery is not a user edit.
+      let initialSyncComplete = false;
+      const handleSync = (synced: boolean) => {
+        if (synced && !initialSyncComplete) {
+          initialSyncComplete = true;
+          onDocumentReady?.(() => Y.encodeStateAsUpdate(ydoc));
+          publishSaveStatus();
+        }
+      };
+      const handleDocumentUpdate = () => {
+        // Invalidate a hash comparison whose snapshot predates this update.
+        comparisonVersion += 1;
+        if (initialSyncComplete) {
+          onDocumentChange?.();
+        }
+      };
+      provider.on('sync', handleSync);
+      ydoc.on('update', handleDocumentUpdate);
+      const handleConnectionClose = (event: CloseEvent | null) => {
+        if (event && AUTHORIZATION_CLOSE_CODES.has(event.code)) {
+          onAuthorizationChange?.();
+        }
+      };
+      provider.on('connection-close', handleConnectionClose);
+      documentCleanupRef.current = () => {
+        comparisonVersion += 1;
+        provider.off('sync', handleSync);
+        provider.off('connection-close', handleConnectionClose);
+        ydoc.off('update', handleDocumentUpdate);
+        if (previousSaveStatusHandler) {
+          provider.messageHandlers[MESSAGE_DOCUMENT_SAVED] = previousSaveStatusHandler;
+        } else {
+          delete provider.messageHandlers[MESSAGE_DOCUMENT_SAVED];
+        }
+      };
 
       // y-websocket's default auth handler logs provider.url, which contains
       // the query-string JWT. Keep permission feedback without exposing it.
@@ -139,22 +249,35 @@ export function CollaborativeEditor({
       );
       bindingRef.current = binding;
     },
-    [token, user, sessionId, onConnectionChange, onPresenceUpdate]
+    [
+      token,
+      user,
+      sessionId,
+      onConnectionChange,
+      onPresenceUpdate,
+      onDocumentReady,
+      onDocumentChange,
+      onDocumentSaveStatus,
+      onAuthorizationChange,
+    ]
   );
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       presenceCleanupRef.current?.();
+      documentCleanupRef.current?.();
       bindingRef.current?.destroy();
       providerRef.current?.destroy();
       docRef.current?.destroy();
       presenceCleanupRef.current = null;
+      documentCleanupRef.current = null;
       bindingRef.current = null;
       providerRef.current = null;
       docRef.current = null;
+      onDocumentReady?.(null);
     };
-  }, []);
+  }, [onDocumentReady]);
 
   const monacoLanguage = LANGUAGE_MAP[language] || 'plaintext';
   const isReadOnly = role === 'viewer';

@@ -32,6 +32,8 @@ class Settings(BaseSettings):
 
     # ── CRDT persistence ─────────────────────────────────────
     crdt_flush_interval_seconds: int = 30
+    crdt_max_update_bytes: int = 5 * 1024 * 1024
+    crdt_checkpoint_ttl_seconds: int = 7 * 24 * 60 * 60
 
 
 settings = Settings()

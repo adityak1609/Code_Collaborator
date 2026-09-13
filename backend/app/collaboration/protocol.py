@@ -15,6 +15,7 @@ MESSAGE_SYNC = 0
 MESSAGE_AWARENESS = 1
 MESSAGE_AUTH = 2
 MESSAGE_QUERY_AWARENESS = 3
+MESSAGE_DOCUMENT_STATUS = 4
 
 SYNC_STEP1 = 0
 SYNC_STEP2 = 1
@@ -258,3 +259,33 @@ def encode_permission_denied(reason: str) -> bytes:
         + encode_var_uint(AUTH_PERMISSION_DENIED)
         + _encode_var_string(reason)
     )
+
+
+def encode_document_saved(
+    *,
+    saved_at: str | None,
+    state_vector: str | None,
+    state_hash: str,
+    dirty: bool,
+    saved_by: str | None,
+) -> bytes:
+    """Build the custom server-to-client document persistence event.
+
+    The outer message type lives outside the standard y-websocket range while
+    the payload still uses lib0's var-string encoding. Clients compare the
+    supplied state vector with their current Y.Doc before showing "Saved" so a
+    delayed response cannot hide newer collaborative edits.
+    """
+    payload = json.dumps(
+        {
+            "type": "document_saved",
+            "saved_at": saved_at,
+            "state_vector": state_vector,
+            "state_hash": state_hash,
+            "dirty": dirty,
+            "saved_by": saved_by,
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return encode_var_uint(MESSAGE_DOCUMENT_STATUS) + _encode_var_string(payload)

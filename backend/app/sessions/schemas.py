@@ -31,6 +31,15 @@ class SessionDetailResponse(SessionResponse):
     members: list["MemberResponse"]
 
 
+class DocumentSaveResponse(BaseModel):
+    session_id: uuid.UUID
+    size_bytes: int
+    saved_at: datetime
+    state_vector: str
+    state_hash: str
+    dirty: bool
+
+
 # ── Member schemas ────────────────────────────────────────────
 
 

@@ -1,10 +1,13 @@
 """Fast unit tests for core business rules that do not require external services."""
 
+import asyncio
 import logging
+from types import SimpleNamespace
 
 import pytest
 from jose import JWTError
 
+from app import main as main_module
 from app.auth.service import (
     create_access_token,
     decode_token,
@@ -116,3 +119,33 @@ def test_presence_join_update_and_leave() -> None:
 
     manager.leave(session_id, user_id)
     assert manager.get_all_presence(session_id) == []
+
+
+@pytest.mark.asyncio
+async def test_periodic_flush_drains_in_flight_checkpoint_before_stopping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = asyncio.Event()
+    allow_finish = asyncio.Event()
+
+    async def checkpoint(_session_id: str) -> None:
+        started.set()
+        await allow_finish.wait()
+
+    monkeypatch.setattr(settings, "crdt_flush_interval_seconds", 0.001)
+    monkeypatch.setattr(
+        main_module,
+        "doc_manager",
+        SimpleNamespace(active_sessions=["room"]),
+    )
+    monkeypatch.setattr(main_module, "maintain_document_checkpoint", checkpoint)
+    stop_event = asyncio.Event()
+    task = asyncio.create_task(main_module._periodic_crdt_flush(stop_event))
+
+    await asyncio.wait_for(started.wait(), timeout=1)
+    stop_event.set()
+    await asyncio.sleep(0)
+    assert task.done() is False
+
+    allow_finish.set()
+    await asyncio.wait_for(task, timeout=1)

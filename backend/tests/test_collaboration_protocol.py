@@ -1,5 +1,7 @@
 """Focused tests for the y-websocket wire protocol and awareness clocks."""
 
+import json
+
 import pycrdt
 import pytest
 
@@ -8,6 +10,7 @@ from app.collaboration.document import DocumentManager
 from app.collaboration.presence import AwarenessStore
 from app.collaboration.protocol import (
     MAX_SAFE_INTEGER,
+    MESSAGE_DOCUMENT_STATUS,
     SYNC_STEP1,
     SYNC_STEP2,
     SYNC_UPDATE,
@@ -19,6 +22,7 @@ from app.collaboration.protocol import (
     SyncMessage,
     decode_var_uint,
     encode_awareness_message,
+    encode_document_saved,
     encode_permission_denied,
     encode_sync_message,
     encode_sync_step1,
@@ -230,6 +234,31 @@ async def test_viewer_can_request_sync_but_cannot_submit_updates(
     assert isinstance(denied, AuthMessage)
     assert "cannot edit" in denied.reason
     assert manager.applied == []
+
+
+def test_document_saved_event_uses_a_lib0_var_string_payload() -> None:
+    frame = encode_document_saved(
+        saved_at="2026-09-12T10:15:30+00:00",
+        state_vector="AQID",
+        state_hash="a" * 64,
+        dirty=False,
+        saved_by="ada",
+    )
+
+    message_type, offset = decode_var_uint(frame)
+    payload_size, offset = decode_var_uint(frame, offset)
+    payload = json.loads(frame[offset : offset + payload_size].decode("utf-8"))
+
+    assert message_type == MESSAGE_DOCUMENT_STATUS
+    assert offset + payload_size == len(frame)
+    assert payload == {
+        "type": "document_saved",
+        "saved_at": "2026-09-12T10:15:30+00:00",
+        "state_vector": "AQID",
+        "state_hash": "a" * 64,
+        "dirty": False,
+        "saved_by": "ada",
+    }
 
 
 @pytest.mark.asyncio

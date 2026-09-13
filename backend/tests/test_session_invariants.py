@@ -10,7 +10,7 @@ from fastapi import HTTPException, status
 from app.auth import dependencies as auth_dependencies
 from app.auth.dependencies import RoleChecker
 from app.models import RoleEnum
-from app.sessions.router import _raise_http_error
+from app.sessions.router import _raise_http_error, _require_current_editor
 from app.sessions.service import (
     SessionConflictError,
     SessionInactiveError,
@@ -159,3 +159,51 @@ def test_session_service_errors_have_stable_http_statuses(error, expected_status
 
     assert caught.value.status_code == expected_status
     assert caught.value.detail == str(error)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("row", "expected_status", "expected_detail"),
+    [
+        (None, status.HTTP_404_NOT_FOUND, "Session not found"),
+        (
+            SimpleNamespace(is_active=False, role=RoleEnum.editor),
+            status.HTTP_410_GONE,
+            "Session is closed",
+        ),
+        (
+            SimpleNamespace(is_active=True, role=None),
+            status.HTTP_403_FORBIDDEN,
+            "Insufficient permissions",
+        ),
+        (
+            SimpleNamespace(is_active=True, role=RoleEnum.viewer),
+            status.HTTP_403_FORBIDDEN,
+            "Insufficient permissions",
+        ),
+    ],
+)
+async def test_current_editor_recheck_rejects_stale_authority(
+    row, expected_status, expected_detail
+):
+    result = MagicMock()
+    result.one_or_none.return_value = row
+    db = SimpleNamespace(execute=AsyncMock(return_value=result))
+
+    with pytest.raises(HTTPException) as caught:
+        await _require_current_editor(db, uuid.uuid4(), uuid.uuid4())
+
+    assert caught.value.status_code == expected_status
+    assert caught.value.detail == expected_detail
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", [RoleEnum.editor, RoleEnum.owner])
+async def test_current_editor_recheck_accepts_write_roles(role):
+    result = MagicMock()
+    result.one_or_none.return_value = SimpleNamespace(is_active=True, role=role)
+    db = SimpleNamespace(execute=AsyncMock(return_value=result))
+
+    await _require_current_editor(db, uuid.uuid4(), uuid.uuid4())
+
+    db.execute.assert_awaited_once()

@@ -56,9 +56,22 @@ export interface SessionDetail extends Session {
   members: Member[];
 }
 
+export interface DocumentSaveResult {
+  session_id: string;
+  size_bytes: number;
+  saved_at: string;
+  state_vector: string;
+  state_hash: string;
+  dirty: boolean;
+}
+
 export const sessionsApi = {
   list: () => api.get<Session[]>('/sessions'),
   get: (id: string) => api.get<SessionDetail>(`/sessions/${id}`),
+  save: (id: string, documentState: Uint8Array) =>
+    api.post<DocumentSaveResult>(`/sessions/${id}/save`, documentState, {
+      headers: { 'Content-Type': 'application/octet-stream' },
+    }),
   create: (name: string, language: string) =>
     api.post<Session>('/sessions', { name, language }),
   addMember: (sessionId: string, userId: string, role: string) =>

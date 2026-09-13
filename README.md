@@ -3,7 +3,8 @@
 Concord is a collaborative code editor built with React, Monaco, Yjs, FastAPI,
 pycrdt, PostgreSQL, and Redis. The current implementation focuses on Milestone 1:
 authenticated sessions, role-based access, real-time editing, awareness/presence,
-reconnection, and CRDT persistence.
+reconnection, Redis recovery checkpoints, explicit PostgreSQL saves, and live
+authorization revocation for connected clients.
 
 ## Current status
 
@@ -15,8 +16,9 @@ reconnection, and CRDT persistence.
   CI, benchmarks, and horizontal-scaling experiments remain.
 
 Collaboration deliberately runs in one backend process. Its in-memory Y.Doc is
-authoritative while users are connected and is periodically persisted to
-PostgreSQL. Multiple Uvicorn workers are not supported in V1.
+authoritative while users are connected, periodically checkpointed to Redis for
+crash recovery, and saved to PostgreSQL when an editor explicitly saves. Multiple
+Uvicorn workers are not supported in V1.
 
 ## Run locally
 
@@ -67,7 +69,9 @@ npm.cmd run lint
 ```
 
 With the Compose stack running, exercise auth, RBAC, three simultaneous Yjs
-clients, presence, viewer write rejection, reconnect, and persistence:
+clients, presence, viewer write/save rejection, reconnect, explicit save, and
+Redis recovery. It also verifies shared save metadata plus connected-client
+demotion, removal, and session-close enforcement:
 
 ```powershell
 cd frontend
@@ -85,6 +89,8 @@ Frontend build variables are documented in `frontend/.env.example`:
 
 Backend variables are documented in `backend/.env.example`. Never commit a real
 `.env`; repository and Docker ignore files exclude secrets and generated files.
+Recovery checkpoints expire after seven days by default; configure
+`CRDT_CHECKPOINT_TTL_SECONDS` to change that retention window.
 
 ## Next milestone
 

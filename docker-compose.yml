@@ -54,6 +54,9 @@ services:
       SYNC_DATABASE_URL: postgresql+psycopg://concord:concord@postgres:5432/concord
       REDIS_URL: redis://redis:6379/0
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      CRDT_FLUSH_INTERVAL_SECONDS: ${CRDT_FLUSH_INTERVAL_SECONDS:-30}
+      CRDT_MAX_UPDATE_BYTES: ${CRDT_MAX_UPDATE_BYTES:-5242880}
+      CRDT_CHECKPOINT_TTL_SECONDS: ${CRDT_CHECKPOINT_TTL_SECONDS:-604800}
     depends_on:
       postgres:
         condition: service_healthy
