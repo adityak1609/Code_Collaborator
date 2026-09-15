@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     execution_memory_limit: str = "256m"
     execution_cpu_limit: int = 1
     execution_pids_limit: int = 64
+    execution_output_limit_bytes: int = 1024 * 1024
+    execution_poll_interval_seconds: float = 0.25
 
     # ── CRDT persistence ─────────────────────────────────────
     crdt_flush_interval_seconds: int = 30

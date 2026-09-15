@@ -12,9 +12,10 @@ not download the editor bundle.
 
 - Milestone 1: functional vertical slice; backend, frontend component, browser
   E2E, and live three-client collaboration tests are available.
-- Milestone 2: execution state machine, persisted run/history/detail/cancel API,
-  and Redis job/cancellation transport are implemented. The worker, sandbox,
-  streaming output, and terminal UI are next.
+- Milestone 2: execution state machine, persisted API, Redis transport, and the
+  isolated Docker worker are implemented. The worker is verified host-side;
+  Compose activation requires an explicit Docker-socket trust decision.
+  Streaming delivery and terminal UI are next.
 - Milestone 3: snapshot schema only. Snapshot APIs, CI, benchmarks, expanded
   test coverage, and horizontal-scaling experiments remain.
 
@@ -99,6 +100,18 @@ Backend variables are documented in `backend/.env.example`. Never commit a real
 `.env`; repository and Docker ignore files exclude secrets and generated files.
 Recovery checkpoints expire after seven days by default; configure
 `CRDT_CHECKPOINT_TTL_SECONDS` to change that retention window.
+
+The execution worker needs access to a Docker daemon to create restricted
+sandbox containers. It can be run from the host with:
+
+```powershell
+cd backend
+.\venv\Scripts\python.exe -m app.execution.worker
+```
+
+Mounting `/var/run/docker.sock` into a Compose worker effectively grants that
+trusted worker control of the Docker daemon, so the default Compose file does
+not enable that privilege automatically.
 
 ## Next milestone
 
