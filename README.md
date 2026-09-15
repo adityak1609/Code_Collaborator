@@ -13,9 +13,9 @@ not download the editor bundle.
 - Milestone 1: functional vertical slice; backend, frontend component, browser
   E2E, and live three-client collaboration tests are available.
 - Milestone 2: execution state machine, persisted API, Redis transport, and the
-  isolated Docker worker are implemented. The worker is verified host-side;
-  Compose activation requires an explicit Docker-socket trust decision.
-  Streaming delivery and terminal UI are next.
+  isolated Docker worker are implemented. The trusted worker is enabled in
+  Compose with Docker-socket access. Streaming delivery and terminal UI are
+  next.
 - Milestone 3: snapshot schema only. Snapshot APIs, CI, benchmarks, expanded
   test coverage, and horizontal-scaling experiments remain.
 
@@ -109,9 +109,9 @@ cd backend
 .\venv\Scripts\python.exe -m app.execution.worker
 ```
 
-Mounting `/var/run/docker.sock` into a Compose worker effectively grants that
-trusted worker control of the Docker daemon, so the default Compose file does
-not enable that privilege automatically.
+The Compose worker mounts `/var/run/docker.sock`, which effectively grants the
+trusted worker control of the Docker daemon. User code never receives that
+socket; it runs in separate restricted containers.
 
 ## Next milestone
 

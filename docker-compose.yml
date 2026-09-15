@@ -65,6 +65,31 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  worker:
+    build: ./backend
+    restart: unless-stopped
+    command: python -m app.execution.worker
+    environment:
+      DATABASE_URL: postgresql+psycopg://concord:concord@postgres:5432/concord
+      SYNC_DATABASE_URL: postgresql+psycopg://concord:concord@postgres:5432/concord
+      REDIS_URL: redis://redis:6379/0
+      EXECUTION_TIMEOUT_SECONDS: ${EXECUTION_TIMEOUT_SECONDS:-30}
+      EXECUTION_MEMORY_LIMIT: ${EXECUTION_MEMORY_LIMIT:-256m}
+      EXECUTION_CPU_LIMIT: ${EXECUTION_CPU_LIMIT:-1}
+      EXECUTION_PIDS_LIMIT: ${EXECUTION_PIDS_LIMIT:-64}
+      EXECUTION_OUTPUT_LIMIT_BYTES: ${EXECUTION_OUTPUT_LIMIT_BYTES:-1048576}
+      EXECUTION_POLL_INTERVAL_SECONDS: ${EXECUTION_POLL_INTERVAL_SECONDS:-0.25}
+    volumes:
+      # Trusted worker only; sandbox containers never receive this socket.
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
   frontend:
     build: ./frontend
     restart: unless-stopped

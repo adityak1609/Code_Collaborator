@@ -16,6 +16,8 @@ from datetime import UTC, datetime
 import docker
 from docker.errors import ImageNotFound
 from redis.asyncio import Redis
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 from sqlalchemy import select
 
 from app.config import settings
@@ -72,7 +74,10 @@ def _bounded(data: bytes) -> str:
 class ExecutionWorker:
     def __init__(self, redis_client=None, docker_client=None) -> None:
         self.redis = redis_client or Redis.from_url(
-            settings.redis_url, decode_responses=True
+            settings.redis_url,
+            decode_responses=True,
+            socket_connect_timeout=5,
+            socket_timeout=None,
         )
         self.docker = docker_client or docker.from_env()
         self.queue = ExecutionQueue(self.redis)
@@ -270,7 +275,12 @@ class ExecutionWorker:
     async def run(self) -> None:
         logger.info("Waiting on %s", EXECUTION_QUEUE_KEY)
         while True:
-            item = await self.redis.blpop(EXECUTION_QUEUE_KEY, timeout=5)
+            try:
+                item = await self.redis.blpop(EXECUTION_QUEUE_KEY, timeout=0)
+            except (RedisConnectionError, RedisTimeoutError):
+                logger.warning("Redis queue unavailable; retrying")
+                await asyncio.sleep(1)
+                continue
             if item is None:
                 continue
             try:

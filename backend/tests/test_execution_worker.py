@@ -1,8 +1,18 @@
 import io
 import tarfile
+from unittest.mock import AsyncMock
+
+import pytest
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from app.config import settings
-from app.execution.worker import RUNTIMES, _bounded, _code_archive
+from app.execution.worker import (
+    EXECUTION_QUEUE_KEY,
+    RUNTIMES,
+    ExecutionWorker,
+    _bounded,
+    _code_archive,
+)
 from app.models import LanguageEnum
 
 
@@ -28,3 +38,22 @@ def test_output_is_bounded(monkeypatch):
     result = _bounded(b"x" * 100)
     assert len(result.encode()) <= 32
     assert result.endswith("[output truncated]\n")
+
+
+@pytest.mark.asyncio
+async def test_queue_timeout_is_retried(monkeypatch):
+    redis = AsyncMock()
+    redis.blpop.side_effect = [RedisTimeoutError, (EXECUTION_QUEUE_KEY, "invalid")]
+    worker = ExecutionWorker(redis_client=redis, docker_client=AsyncMock())
+    sleep = AsyncMock()
+    monkeypatch.setattr("app.execution.worker.asyncio.sleep", sleep)
+
+    with pytest.raises(StopAsyncIteration):
+        redis.blpop.side_effect = [
+            RedisTimeoutError,
+            (EXECUTION_QUEUE_KEY, "invalid"),
+            StopAsyncIteration,
+        ]
+        await worker.run()
+
+    sleep.assert_awaited_once_with(1)
