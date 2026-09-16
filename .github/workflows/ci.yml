@@ -53,7 +53,7 @@ jobs:
         run: ruff format --check app tests benchmarks
         working-directory: backend
       - name: Test with business-logic coverage gate
-        run: pytest -q --cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=80
+        run: python -m pytest -q --cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=80
         working-directory: backend
       - uses: actions/upload-artifact@v4
         with:
