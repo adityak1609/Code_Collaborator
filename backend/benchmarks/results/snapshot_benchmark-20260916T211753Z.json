@@ -1,0 +1,30 @@
+{
+  "benchmark": "snapshot_benchmark",
+  "generated_at": "2026-09-16T21:17:53.672071+00:00",
+  "results": [
+    {
+      "document_bytes": 1024,
+      "snapshot_size_bytes": 1047,
+      "snapshot_create_ms": 15.262,
+      "snapshot_restore_ms": 12.388
+    },
+    {
+      "document_bytes": 10240,
+      "snapshot_size_bytes": 10263,
+      "snapshot_create_ms": 16.526,
+      "snapshot_restore_ms": 12.578
+    },
+    {
+      "document_bytes": 102400,
+      "snapshot_size_bytes": 102424,
+      "snapshot_create_ms": 39.284,
+      "snapshot_restore_ms": 16.868
+    },
+    {
+      "document_bytes": 1048576,
+      "snapshot_size_bytes": 1048600,
+      "snapshot_create_ms": 48.367,
+      "snapshot_restore_ms": 39.528
+    }
+  ]
+}

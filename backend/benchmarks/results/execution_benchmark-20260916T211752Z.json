@@ -1,0 +1,42 @@
+{
+  "benchmark": "execution_benchmark",
+  "generated_at": "2026-09-16T21:17:52.124532+00:00",
+  "results": [
+    {
+      "concurrency": 1,
+      "jobs": 1,
+      "throughput_jobs_per_second": 2.314,
+      "queue_to_start_p50_ms": 362.199,
+      "queue_to_start_p95_ms": 362.199,
+      "total_p95_ms": 412.0,
+      "timeout_rate_percent": 0.0
+    },
+    {
+      "concurrency": 5,
+      "jobs": 5,
+      "throughput_jobs_per_second": 1.997,
+      "queue_to_start_p50_ms": 1453.23,
+      "queue_to_start_p95_ms": 2436.68,
+      "total_p95_ms": 481.0,
+      "timeout_rate_percent": 0.0
+    },
+    {
+      "concurrency": 10,
+      "jobs": 10,
+      "throughput_jobs_per_second": 1.964,
+      "queue_to_start_p50_ms": 3428.388,
+      "queue_to_start_p95_ms": 5010.594,
+      "total_p95_ms": 486.0,
+      "timeout_rate_percent": 0.0
+    },
+    {
+      "concurrency": 20,
+      "jobs": 20,
+      "throughput_jobs_per_second": 1.924,
+      "queue_to_start_p50_ms": 8264.508,
+      "queue_to_start_p95_ms": 9815.04,
+      "total_p95_ms": 501.0,
+      "timeout_rate_percent": 0.0
+    }
+  ]
+}

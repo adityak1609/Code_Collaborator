@@ -23,6 +23,7 @@ from app.collaboration.protocol import (
     decode_var_uint,
     encode_awareness_message,
     encode_document_saved,
+    encode_execution_event,
     encode_permission_denied,
     encode_sync_message,
     encode_sync_step1,
@@ -259,6 +260,26 @@ def test_document_saved_event_uses_a_lib0_var_string_payload() -> None:
         "dirty": False,
         "saved_by": "ada",
     }
+
+
+def test_execution_event_uses_a_lib0_var_string_payload() -> None:
+    event = {
+        "type": "execution_output",
+        "execution_id": "00000000-0000-0000-0000-000000000001",
+        "session_id": "00000000-0000-0000-0000-000000000002",
+        "stream": "stdout",
+        "data": "hello\n",
+        "status": "RUNNING",
+    }
+    frame = encode_execution_event(event)
+
+    message_type, offset = decode_var_uint(frame)
+    payload_size, offset = decode_var_uint(frame, offset)
+    payload = json.loads(frame[offset : offset + payload_size].decode("utf-8"))
+
+    assert message_type == 5
+    assert offset + payload_size == len(frame)
+    assert payload == event
 
 
 @pytest.mark.asyncio

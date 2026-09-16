@@ -1,0 +1,42 @@
+{
+  "benchmark": "websocket_benchmark",
+  "generated_at": "2026-09-16T21:22:20.905801+00:00",
+  "results": [
+    {
+      "concurrent_users": 10,
+      "connect_rate_percent": 100.0,
+      "delivery_rate_percent": 100.0,
+      "latency_p50_ms": 6.979,
+      "latency_p95_ms": 19.907,
+      "latency_p99_ms": 20.625,
+      "server_memory_mb": 107.87
+    },
+    {
+      "concurrent_users": 25,
+      "connect_rate_percent": 100.0,
+      "delivery_rate_percent": 100.0,
+      "latency_p50_ms": 22.086,
+      "latency_p95_ms": 41.211,
+      "latency_p99_ms": 46.129,
+      "server_memory_mb": 108.46
+    },
+    {
+      "concurrent_users": 50,
+      "connect_rate_percent": 100.0,
+      "delivery_rate_percent": 100.0,
+      "latency_p50_ms": 75.545,
+      "latency_p95_ms": 121.424,
+      "latency_p99_ms": 133.946,
+      "server_memory_mb": 108.14
+    },
+    {
+      "concurrent_users": 100,
+      "connect_rate_percent": 100.0,
+      "delivery_rate_percent": 100.0,
+      "latency_p50_ms": 351.238,
+      "latency_p95_ms": 747.814,
+      "latency_p99_ms": 985.436,
+      "server_memory_mb": 101.06
+    }
+  ]
+}

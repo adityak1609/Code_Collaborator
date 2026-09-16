@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { sessionsApi } from '../api/client';
+import { executionsApi, sessionsApi } from '../api/client';
 import { useAuthStore } from '../store/authStore';
 import { SessionPage } from './SessionPage';
 
@@ -10,6 +10,17 @@ vi.mock('../api/client', () => ({
   sessionsApi: {
     get: vi.fn(),
     save: vi.fn(),
+  },
+  executionsApi: {
+    run: vi.fn(),
+    list: vi.fn(),
+    get: vi.fn(),
+    cancel: vi.fn(),
+  },
+  snapshotsApi: {
+    list: vi.fn(),
+    create: vi.fn(),
+    restore: vi.fn(),
   },
 }));
 
@@ -67,6 +78,13 @@ describe('SessionPage', () => {
   beforeEach(() => {
     vi.mocked(sessionsApi.get).mockReset();
     vi.mocked(sessionsApi.save).mockReset();
+    vi.mocked(executionsApi.run).mockReset();
+    vi.mocked(executionsApi.list).mockReset();
+    vi.mocked(executionsApi.get).mockReset();
+    vi.mocked(executionsApi.cancel).mockReset();
+    vi.mocked(executionsApi.list).mockResolvedValue({
+      data: { items: [], total: 0, limit: 20, offset: 0 },
+    } as never);
     useAuthStore.setState({
       token: 'token',
       user: {
@@ -131,5 +149,43 @@ describe('SessionPage', () => {
     await waitFor(() => expect(sessionsApi.get).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
     expect(screen.getByText('Read-only')).toBeInTheDocument();
+  });
+
+  it('runs and cancels the current collaborative draft', async () => {
+    vi.mocked(sessionsApi.get).mockResolvedValue({ data: ownerSession } as never);
+    const running = {
+      id: 'execution-id',
+      session_id: 'session-id',
+      triggered_by: 'owner-id',
+      status: 'RUNNING' as const,
+      code: 'print("hi")',
+      language: 'python' as const,
+      stdout: '',
+      stderr: '',
+      exit_code: null,
+      elapsed_ms: null,
+      created_at: '2026-09-13T08:06:00Z',
+      finished_at: null,
+    };
+    vi.mocked(executionsApi.run).mockResolvedValue({ data: running } as never);
+    vi.mocked(executionsApi.cancel).mockResolvedValue({
+      data: { ...running, status: 'CANCELLED', finished_at: '2026-09-13T08:06:01Z' },
+    } as never);
+    vi.mocked(executionsApi.get).mockResolvedValue({ data: running } as never);
+    renderSessionPage();
+
+    const runButton = await screen.findByRole('button', { name: /run/i });
+    await waitFor(() => expect(runButton).toBeEnabled());
+    fireEvent.click(runButton);
+
+    await waitFor(() => expect(executionsApi.run).toHaveBeenCalledWith('session-id'));
+    expect(await screen.findByText('RUNNING')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+
+    await waitFor(() => expect(executionsApi.cancel).toHaveBeenCalledWith(
+      'session-id',
+      'execution-id',
+    ));
+    expect(await screen.findByText('CANCELLED')).toBeInTheDocument();
   });
 });

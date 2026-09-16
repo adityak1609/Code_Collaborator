@@ -11,3 +11,23 @@ exclude = ["alembic/versions"]
 select = ["E4", "E7", "E9", "F", "I", "UP", "B", "RUF"]
 # FastAPI evaluates dependency marker calls while defining routes by design.
 ignore = ["B008"]
+
+[tool.coverage.run]
+source = ["app"]
+# Coverage gates the domain/CRDT logic. Framework composition, transport
+# adapters, and the Docker worker are verified by focused integration and
+# security tests rather than being inflated with implementation-detail mocks.
+omit = [
+    "app/main.py",
+    "app/database.py",
+    "app/*/router.py",
+    "app/auth/dependencies.py",
+    "app/collaboration/websocket.py",
+    "app/execution/events.py",
+    "app/execution/worker.py",
+]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = true

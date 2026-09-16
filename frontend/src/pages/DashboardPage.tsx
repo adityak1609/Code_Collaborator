@@ -70,10 +70,14 @@ export function DashboardPage() {
       </header>
 
       <div className="dashboard-content">
-        <div className="flex justify-between items-center" style={{ marginBottom: 20 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 600 }}>Your Sessions</h2>
+        <div className="dashboard-hero">
+          <div>
+            <span className="eyebrow">Your development rooms</span>
+            <h2>Build better code, together.</h2>
+            <p>Create a secure workspace, invite your team, and run shared code without leaving the editor.</p>
+          </div>
           <button className="btn btn-primary" onClick={() => setShowModal(true)}>
-            + New Session
+            <span aria-hidden="true">＋</span> New workspace
           </button>
         </div>
 
@@ -96,6 +100,12 @@ export function DashboardPage() {
                 className="card card-hover session-card"
                 onClick={() => navigate(`/session/${session.id}`)}
               >
+                <div className="session-card-topline">
+                  <span className={`session-language-mark session-language-${session.language}`}>
+                    {session.language === 'python' ? 'Py' : session.language === 'cpp' ? 'C+' : 'JS'}
+                  </span>
+                  <span className="session-live-state"><i /> Ready</span>
+                </div>
                 <h3>{session.name}</h3>
                 <div className="meta">
                   <span className={`badge badge-${session.language}`}>

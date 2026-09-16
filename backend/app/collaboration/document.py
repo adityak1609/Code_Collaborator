@@ -306,6 +306,27 @@ class DocumentManager:
             return doc.get_update(state_vector)
         return doc.get_update()
 
+    def restore_text_from_state(self, session_id: str, state: bytes) -> bytes:
+        """Restore snapshot text as a new CRDT edit and return its wire update.
+
+        Replacing the live ``Doc`` would invalidate connected clients. Instead,
+        snapshot content is decoded in a temporary document and applied as an
+        ordinary delete/insert transaction to the authoritative text.
+        """
+        snapshot = self._new_doc()
+        snapshot.apply_update(state)
+        desired_text = str(snapshot["monaco"])
+
+        doc = self.get_or_create(session_id)
+        before = doc.get_state()
+        text: pycrdt.Text = doc["monaco"]
+        if str(text) != desired_text:
+            text.clear()
+            if desired_text:
+                text.insert(0, desired_text)
+            self._metadata[session_id].generation += 1
+        return doc.get_update(before)
+
     def get_document_status(self, session_id: str) -> DocumentStatus | None:
         """Return the current DB-save and Redis-checkpoint boundaries."""
         doc = self._docs.get(session_id)

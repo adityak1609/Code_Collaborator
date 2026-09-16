@@ -5,6 +5,7 @@
 import axios from 'axios';
 import { API_URL } from '../config';
 import { useAuthStore } from '../store/authStore';
+import type { ExecutionHistory, ExecutionRecord } from '../types/execution';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -65,6 +66,27 @@ export interface DocumentSaveResult {
   dirty: boolean;
 }
 
+export interface Snapshot {
+  id: string;
+  session_id: string;
+  created_by: string | null;
+  label: string;
+  size_bytes: number;
+  created_at: string;
+}
+
+export interface SnapshotHistory {
+  items: Snapshot[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface SnapshotRestoreResult {
+  snapshot: Snapshot;
+  update_size_bytes: number;
+}
+
 export const sessionsApi = {
   list: () => api.get<Session[]>('/sessions'),
   get: (id: string) => api.get<SessionDetail>(`/sessions/${id}`),
@@ -81,4 +103,34 @@ export const sessionsApi = {
   removeMember: (sessionId: string, userId: string) =>
     api.delete(`/sessions/${sessionId}/members/${userId}`),
   close: (sessionId: string) => api.delete(`/sessions/${sessionId}`),
+};
+
+export const executionsApi = {
+  run: (sessionId: string) =>
+    api.post<ExecutionRecord>(`/sessions/${sessionId}/run`),
+  list: (sessionId: string, limit = 20, offset = 0) =>
+    api.get<ExecutionHistory>(`/sessions/${sessionId}/executions`, {
+      params: { limit, offset },
+    }),
+  get: (sessionId: string, executionId: string) =>
+    api.get<ExecutionRecord>(
+      `/sessions/${sessionId}/executions/${executionId}`,
+    ),
+  cancel: (sessionId: string, executionId: string) =>
+    api.post<ExecutionRecord>(
+      `/sessions/${sessionId}/executions/${executionId}/cancel`,
+    ),
+};
+
+export const snapshotsApi = {
+  list: (sessionId: string, limit = 20, offset = 0) =>
+    api.get<SnapshotHistory>(`/sessions/${sessionId}/snapshots`, {
+      params: { limit, offset },
+    }),
+  create: (sessionId: string, label: string) =>
+    api.post<Snapshot>(`/sessions/${sessionId}/snapshots`, { label }),
+  restore: (sessionId: string, snapshotId: string) =>
+    api.post<SnapshotRestoreResult>(
+      `/sessions/${sessionId}/snapshots/${snapshotId}/restore`,
+    ),
 };

@@ -30,7 +30,7 @@ test('registers, creates a collaborative session, connects, and saves', async ({
 
     await expect(page).toHaveURL(/\/$/);
     await expect(page.getByRole('heading', { name: 'Concord' })).toBeVisible();
-    await page.getByRole('button', { name: '+ New Session' }).click();
+    await page.getByRole('button', { name: /New workspace/ }).click();
     await page.getByLabel('Session Name').fill(`Browser E2E ${unique}`);
     await page.getByLabel('Language').selectOption('javascript');
     await page.getByRole('button', { name: 'Create', exact: true }).click();
@@ -43,10 +43,63 @@ test('registers, creates a collaborative session, connects, and saves', async ({
       timeout: 15_000,
     });
 
+    await page.waitForFunction(() => {
+      const browserWindow = window as typeof window & {
+        monaco?: { editor?: { getModels: () => Array<{ setValue: (value: string) => void }> } };
+      };
+      return Boolean(browserWindow.monaco?.editor?.getModels().length);
+    });
+    await page.evaluate(() => {
+      const browserWindow = window as typeof window & {
+        monaco: { editor: { getModels: () => Array<{ setValue: (value: string) => void }> } };
+      };
+      browserWindow.monaco.editor.getModels()[0].setValue(
+        'console.log("browser-execution-ok");',
+      );
+    });
+    await expect(page.getByText('Unsaved changes')).toBeVisible();
+
+    await page.getByRole('button', { name: /Run/ }).click();
+    await expect(page.locator('.terminal-output')).toContainText(
+      'browser-execution-ok',
+      { timeout: 20_000 },
+    );
+    await expect(page.locator('.execution-status')).toHaveText('COMPLETED');
+    if (process.env.E2E_SCREENSHOT) {
+      await page.screenshot({ path: 'test-results/workspace-desktop.png' });
+      await page.setViewportSize({ width: 640, height: 900 });
+      await page.screenshot({ path: 'test-results/workspace-mobile.png' });
+      await page.setViewportSize({ width: 1280, height: 720 });
+    }
+
     const saveButton = page.getByRole('button', { name: 'Save', exact: true });
     await expect(saveButton).toBeEnabled({ timeout: 15_000 });
     await saveButton.click();
     await expect(page.locator('.save-status')).toContainText('Saved');
+
+    await page.getByLabel('Snapshot label').fill('Before browser refactor');
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
+    await expect(page.getByText('Before browser refactor', { exact: true })).toBeVisible();
+    await page.evaluate(() => {
+      const browserWindow = window as typeof window & {
+        monaco: { editor: { getModels: () => Array<{ setValue: (value: string) => void }> } };
+      };
+      browserWindow.monaco.editor.getModels()[0].setValue(
+        'console.log("temporary browser edit");',
+      );
+    });
+    await expect(page.getByText('Unsaved changes')).toBeVisible();
+    page.once('dialog', (dialog) => void dialog.accept());
+    await page.getByRole('button', { name: 'Restore', exact: true }).click();
+    await expect(page.getByText(/Restored Before browser refactor/)).toBeVisible();
+    await page.waitForFunction(() => {
+      const browserWindow = window as typeof window & {
+        monaco: { editor: { getModels: () => Array<{ getValue: () => string }> } };
+      };
+      return browserWindow.monaco.editor.getModels()[0].getValue()
+        === 'console.log("browser-execution-ok");';
+    });
+    await expect(page.getByText('Unsaved changes')).toBeVisible();
 
     await page.getByLabel('Invite by username').fill(inviteeUsername);
     await page.getByLabel('Invitation role').selectOption('viewer');

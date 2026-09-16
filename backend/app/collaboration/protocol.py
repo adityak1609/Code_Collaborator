@@ -16,6 +16,7 @@ MESSAGE_AWARENESS = 1
 MESSAGE_AUTH = 2
 MESSAGE_QUERY_AWARENESS = 3
 MESSAGE_DOCUMENT_STATUS = 4
+MESSAGE_EXECUTION_EVENT = 5
 
 SYNC_STEP1 = 0
 SYNC_STEP2 = 1
@@ -289,3 +290,9 @@ def encode_document_saved(
         sort_keys=True,
     )
     return encode_var_uint(MESSAGE_DOCUMENT_STATUS) + _encode_var_string(payload)
+
+
+def encode_execution_event(event: dict[str, object]) -> bytes:
+    """Build a custom server-to-client execution event frame."""
+    payload = json.dumps(event, separators=(",", ":"), sort_keys=True)
+    return encode_var_uint(MESSAGE_EXECUTION_EVENT) + _encode_var_string(payload)

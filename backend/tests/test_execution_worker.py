@@ -1,13 +1,14 @@
 import io
 import tarfile
-from unittest.mock import AsyncMock
+import uuid
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from app.config import settings
 from app.execution.worker import (
-    EXECUTION_QUEUE_KEY,
     RUNTIMES,
     ExecutionWorker,
     _bounded,
@@ -41,19 +42,51 @@ def test_output_is_bounded(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_sandbox_container_has_security_and_resource_limits():
+    docker_client = Mock()
+    volume = Mock(name="volume")
+    volume.name = "execution-volume"
+    writer = Mock()
+    sandbox = Mock()
+    docker_client.volumes.create.return_value = volume
+    docker_client.containers.create.side_effect = [writer, sandbox]
+    worker = ExecutionWorker(redis_client=AsyncMock(), docker_client=docker_client)
+    execution = SimpleNamespace(
+        id=uuid.uuid4(),
+        language=LanguageEnum.python,
+        code="print('safe')",
+    )
+
+    created, created_volume = await worker._create_container(execution)
+
+    assert created is sandbox
+    assert created_volume is volume
+    options = docker_client.containers.create.call_args_list[1].kwargs
+    assert options["network_disabled"] is True
+    assert options["network_mode"] == "none"
+    assert options["read_only"] is True
+    assert options["user"] == "65534:65534"
+    assert options["cap_drop"] == ["ALL"]
+    assert options["security_opt"] == ["no-new-privileges:true"]
+    assert options["mem_limit"] == settings.execution_memory_limit
+    assert options["memswap_limit"] == settings.execution_memory_limit
+    assert options["nano_cpus"] == settings.execution_cpu_limit * 1_000_000_000
+    assert options["pids_limit"] == settings.execution_pids_limit
+    assert options["tmpfs"] == {"/tmp": "rw,exec,nosuid,size=64m"}
+
+
+@pytest.mark.asyncio
 async def test_queue_timeout_is_retried(monkeypatch):
     redis = AsyncMock()
-    redis.blpop.side_effect = [RedisTimeoutError, (EXECUTION_QUEUE_KEY, "invalid")]
-    worker = ExecutionWorker(redis_client=redis, docker_client=AsyncMock())
+    redis.blmove.side_effect = [RedisTimeoutError, "invalid", StopAsyncIteration]
+    worker = ExecutionWorker(redis_client=redis, docker_client=Mock())
+    worker._cleanup_orphans = AsyncMock()
+    worker._recover_processing = AsyncMock()
     sleep = AsyncMock()
     monkeypatch.setattr("app.execution.worker.asyncio.sleep", sleep)
 
     with pytest.raises(StopAsyncIteration):
-        redis.blpop.side_effect = [
-            RedisTimeoutError,
-            (EXECUTION_QUEUE_KEY, "invalid"),
-            StopAsyncIteration,
-        ]
         await worker.run()
 
     sleep.assert_awaited_once_with(1)
+    redis.lrem.assert_awaited_once()

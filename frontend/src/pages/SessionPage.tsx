@@ -1,15 +1,19 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { sessionsApi } from '../api/client';
+import { executionsApi, sessionsApi } from '../api/client';
 import type { SessionDetail } from '../api/client';
 import { useAuthStore } from '../store/authStore';
 import { CollaborativeEditor } from '../components/Editor/CollaborativeEditor';
 import { MemberList } from '../components/Sidebar/MemberList';
+import { SnapshotPanel } from '../components/Sidebar/SnapshotPanel';
+import { OutputPanel } from '../components/Terminal/OutputPanel';
 import type {
   ConnectionStatus,
   DocumentSaveStatusEvent,
   PresenceUser,
 } from '../types/collaboration';
+import type { ExecutionEvent, ExecutionRecord } from '../types/execution';
+import { ACTIVE_EXECUTION_STATUSES } from '../types/execution';
 
 type SaveStatus = 'idle' | 'unsaved' | 'saving' | 'saved' | 'error';
 type AssignableRole = 'viewer' | 'editor';
@@ -31,10 +35,19 @@ export function SessionPage() {
   const [authorizationRefreshing, setAuthorizationRefreshing] = useState(false);
   const [memberActionKey, setMemberActionKey] = useState<string | null>(null);
   const [memberFeedback, setMemberFeedback] = useState<MemberFeedback | null>(null);
+  const [executions, setExecutions] = useState<ExecutionRecord[]>([]);
+  const [selectedExecutionId, setSelectedExecutionId] = useState<string | null>(null);
+  const [executionLoading, setExecutionLoading] = useState(true);
+  const [executionError, setExecutionError] = useState<string | null>(null);
+  const [terminalCollapsed, setTerminalCollapsed] = useState(false);
   const getDocumentStateRef = useRef<(() => Uint8Array) | null>(null);
   const documentVersionRef = useRef(0);
   const saveRequestRef = useRef(0);
   const saveInFlightRef = useRef(false);
+  const executionIdsRef = useRef(new Set<string>());
+  const selectedExecution = executions.find(
+    (execution) => execution.id === selectedExecutionId,
+  ) || null;
 
   // Determine current user's role
   const myRole = session?.members.find((m) => m.user_id === user?.id)?.role || 'viewer';
@@ -66,6 +79,108 @@ export function SessionPage() {
     // oxlint-disable-next-line react/set-state-in-effect -- state changes occur after the awaited HTTP request.
     void fetchSession(true);
   }, [fetchSession]);
+
+  const upsertExecution = useCallback((next: ExecutionRecord) => {
+    executionIdsRef.current.add(next.id);
+    setExecutions((current) => {
+      const exists = current.some((item) => item.id === next.id);
+      const merged = exists
+        ? current.map((item) => item.id === next.id ? {
+          ...next,
+          stdout: next.stdout ?? item.stdout,
+          stderr: next.stderr ?? item.stderr,
+        } : item)
+        : [next, ...current];
+      return merged
+        .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+        .slice(0, 20);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    let active = true;
+    executionsApi.list(sessionId)
+      .then((response) => {
+        if (!active) return;
+        executionIdsRef.current = new Set(response.data.items.map((item) => item.id));
+        setExecutions(response.data.items);
+        setSelectedExecutionId((current) => current || response.data.items[0]?.id || null);
+        setExecutionError(null);
+      })
+      .catch(() => {
+        if (active) setExecutionError('Execution history is unavailable.');
+      })
+      .finally(() => {
+        if (active) setExecutionLoading(false);
+      });
+    return () => { active = false; };
+  }, [sessionId]);
+
+  const handleExecutionEvent = useCallback((event: ExecutionEvent) => {
+    const isKnown = executionIdsRef.current.has(event.execution_id);
+    setExecutions((current) => current.map((execution) => {
+      if (execution.id !== event.execution_id) return execution;
+      if (event.type === 'execution_output') {
+        return {
+          ...execution,
+          [event.stream]: `${execution[event.stream] || ''}${event.data}`,
+        };
+      }
+      return {
+        ...execution,
+        status: event.status,
+        stdout: event.stdout ?? execution.stdout,
+        stderr: event.stderr ?? execution.stderr,
+        exit_code: event.exit_code,
+        elapsed_ms: event.elapsed_ms,
+        finished_at: ACTIVE_EXECUTION_STATUSES.has(event.status)
+          ? execution.finished_at
+          : execution.finished_at || new Date().toISOString(),
+      };
+    }));
+    setSelectedExecutionId(event.execution_id);
+    setTerminalCollapsed(false);
+    setExecutionError(null);
+    if (!isKnown && sessionId) {
+      void executionsApi.get(sessionId, event.execution_id)
+        .then((response) => upsertExecution(response.data));
+    }
+  }, [sessionId, upsertExecution]);
+
+  const handleRun = useCallback(async () => {
+    if (!sessionId || effectiveRole === 'viewer') return;
+    setExecutionError(null);
+    setTerminalCollapsed(false);
+    try {
+      const response = await executionsApi.run(sessionId);
+      upsertExecution(response.data);
+      setSelectedExecutionId(response.data.id);
+    } catch (err: any) {
+      setExecutionError(err.response?.data?.detail || 'Unable to start execution.');
+    }
+  }, [effectiveRole, sessionId, upsertExecution]);
+
+  const handleCancel = useCallback(async () => {
+    if (!sessionId || !selectedExecution) return;
+    try {
+      const response = await executionsApi.cancel(sessionId, selectedExecution.id);
+      upsertExecution(response.data);
+    } catch (err: any) {
+      setExecutionError(err.response?.data?.detail || 'Unable to stop execution.');
+    }
+  }, [selectedExecution, sessionId, upsertExecution]);
+
+  useEffect(() => {
+    if (!sessionId || !selectedExecution ||
+        !ACTIVE_EXECUTION_STATUSES.has(selectedExecution.status)) return;
+    const interval = window.setInterval(() => {
+      void executionsApi.get(sessionId, selectedExecution.id)
+        .then((response) => upsertExecution(response.data))
+        .catch(() => undefined);
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [selectedExecution, sessionId, upsertExecution]);
 
   const handleConnectionChange = useCallback(
     (status: ConnectionStatus) => {
@@ -103,6 +218,11 @@ export function SessionPage() {
   const handleDocumentChange = useCallback(() => {
     documentVersionRef.current += 1;
     setSaveStatus((current) => current === 'saving' ? current : 'unsaved');
+  }, []);
+
+  const handleSnapshotRestored = useCallback(() => {
+    documentVersionRef.current += 1;
+    setSaveStatus('unsaved');
   }, []);
 
   const handleDocumentSaveStatus = useCallback((status: DocumentSaveStatusEvent) => {
@@ -211,10 +331,14 @@ export function SessionPage() {
         event.preventDefault();
         void handleSave();
       }
+      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+        event.preventDefault();
+        void handleRun();
+      }
     };
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [handleSave]);
+  }, [handleRun, handleSave]);
 
   if (loading) {
     return (
@@ -249,22 +373,35 @@ export function SessionPage() {
     <div className="workspace">
       {/* Header */}
       <header className="workspace-header">
-        <div className="flex items-center gap-md">
+        <div className="workspace-identity">
           <button
-            className="btn btn-sm"
+            className="icon-button"
             onClick={() => navigate('/')}
             title="Back to dashboard"
+            aria-label="Back to dashboard"
           >
-            ← Back
+            ←
           </button>
-          <span className="session-name">{session.name}</span>
+          <span className="brand-mark" aria-hidden="true">C</span>
+          <div className="workspace-title-stack">
+            <span className="session-name">{session.name}</span>
+            <span className="workspace-subtitle">Live collaborative workspace</span>
+          </div>
           <span className={`badge badge-${session.language}`}>
             {langLabel[session.language] || session.language}
           </span>
         </div>
-        <div className="flex items-center gap-sm">
+        <div className="workspace-actions">
           {effectiveRole !== 'viewer' && (
             <>
+              <button
+                className="btn btn-run"
+                onClick={() => void handleRun()}
+                disabled={!documentReady}
+                title="Run current draft (Ctrl/Cmd+Enter)"
+              >
+                <span aria-hidden="true">▶</span> Run
+              </button>
               <span className={`save-status save-status-${saveStatus}`}>
                 {saveStatus === 'saving' && 'Saving...'}
                 {saveStatus === 'saved' && (lastSavedAt
@@ -277,7 +414,7 @@ export function SessionPage() {
                 {saveStatus === 'error' && 'Save failed'}
               </span>
               <button
-                className="btn btn-primary btn-sm"
+                className="btn btn-save"
                 onClick={() => void handleSave()}
                 disabled={saveStatus === 'saving' || !documentReady}
                 title="Save to PostgreSQL (Ctrl/Cmd+S)"
@@ -297,24 +434,52 @@ export function SessionPage() {
 
       {/* Body */}
       <div className="workspace-body">
-        {/* Editor panel */}
-        <div className="editor-panel">
-          <CollaborativeEditor
-            key={`${sessionId}:${editorEpoch}`}
-            sessionId={sessionId!}
-            language={session.language}
-            role={effectiveRole}
-            onConnectionChange={handleConnectionChange}
-            onPresenceUpdate={handlePresenceUpdate}
-            onDocumentReady={handleDocumentReady}
-            onDocumentChange={handleDocumentChange}
-            onDocumentSaveStatus={handleDocumentSaveStatus}
-            onAuthorizationChange={handleAuthorizationChange}
+        <main className="workspace-main">
+          <div className="editor-tabbar">
+            <div className="editor-tab active">
+              <span className={`language-icon language-icon-${session.language}`}>
+                {session.language === 'python' ? 'Py' : session.language === 'cpp' ? 'C+' : 'JS'}
+              </span>
+              main.{session.language === 'python' ? 'py' : session.language === 'cpp' ? 'cpp' : 'js'}
+              {saveStatus === 'unsaved' && <span className="unsaved-dot" title="Unsaved changes" />}
+            </div>
+            <span className="editor-tab-hint">Shared draft · changes sync instantly</span>
+          </div>
+          <div className="editor-panel">
+            <CollaborativeEditor
+              key={`${sessionId}:${editorEpoch}`}
+              sessionId={sessionId!}
+              language={session.language}
+              role={effectiveRole}
+              onConnectionChange={handleConnectionChange}
+              onPresenceUpdate={handlePresenceUpdate}
+              onDocumentReady={handleDocumentReady}
+              onDocumentChange={handleDocumentChange}
+              onDocumentSaveStatus={handleDocumentSaveStatus}
+              onExecutionEvent={handleExecutionEvent}
+              onAuthorizationChange={handleAuthorizationChange}
+            />
+          </div>
+          <OutputPanel
+            executions={executions}
+            selected={selectedExecution}
+            loading={executionLoading}
+            error={executionError}
+            collapsed={terminalCollapsed}
+            canCancel={effectiveRole !== 'viewer'}
+            onSelect={setSelectedExecutionId}
+            onCancel={() => void handleCancel()}
+            onToggle={() => setTerminalCollapsed((value) => !value)}
           />
-        </div>
+        </main>
 
         {/* Sidebar */}
         <div className="sidebar-panel">
+          <SnapshotPanel
+            sessionId={sessionId!}
+            canEdit={effectiveRole !== 'viewer'}
+            onRestored={handleSnapshotRestored}
+          />
           <MemberList
             members={session.members}
             onlineUsers={onlineUsers}

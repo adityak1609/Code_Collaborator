@@ -17,9 +17,11 @@ from app.collaboration.document import doc_manager
 from app.collaboration.websocket import maintain_document_checkpoint
 from app.collaboration.websocket import router as ws_router
 from app.config import settings
+from app.execution.events import run_execution_event_relay
 from app.execution.queue import execution_queue
 from app.execution.router import router as execution_router
 from app.sessions.router import router as sessions_router
+from app.snapshots.router import router as snapshots_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -77,6 +79,10 @@ async def lifespan(app: FastAPI):
     # Start periodic CRDT flush
     flush_stop = asyncio.Event()
     flush_task = asyncio.create_task(_periodic_crdt_flush(flush_stop))
+    execution_relay_stop = asyncio.Event()
+    execution_relay_task = asyncio.create_task(
+        run_execution_event_relay(execution_relay_stop)
+    )
     logger.info(
         "CRDT flush task started (interval=%ds)",
         settings.crdt_flush_interval_seconds,
@@ -90,10 +96,11 @@ async def lifespan(app: FastAPI):
         # an exception, so Redis is not leaked and recovery gets a final chance.
         logger.info("Shutting down — checkpointing active documents…")
         flush_stop.set()
+        execution_relay_stop.set()
         try:
             # Drain an in-flight Redis write before issuing the final snapshot;
             # cancelling it would make server-side completion order ambiguous.
-            await flush_task
+            await asyncio.gather(flush_task, execution_relay_task)
         finally:
             try:
                 for session_id in doc_manager.active_sessions:
@@ -131,6 +138,7 @@ app.add_middleware(
 # ── Routers ───────────────────────────────────────────────────
 app.include_router(auth_router)
 app.include_router(sessions_router)
+app.include_router(snapshots_router)
 app.include_router(execution_router)
 app.include_router(ws_router)
 

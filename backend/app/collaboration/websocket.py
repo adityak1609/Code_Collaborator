@@ -33,6 +33,7 @@ from app.collaboration.protocol import (
     SyncMessage,
     encode_awareness_message,
     encode_document_saved,
+    encode_execution_event,
     encode_permission_denied,
     encode_sync_step1,
     encode_sync_step2,
@@ -362,6 +363,11 @@ async def _broadcast_binary(session_id: str, data: bytes) -> None:
 async def broadcast_document_update(session_id: str, update: bytes) -> None:
     """Broadcast an authorized Yjs update submitted outside the WS loop."""
     await _broadcast_binary(session_id, encode_sync_update(update))
+
+
+async def broadcast_execution_event(session_id: str, event: dict[str, object]) -> None:
+    """Forward a validated execution event to every connected session member."""
+    await _broadcast_binary(session_id, encode_execution_event(event))
 
 
 def _document_saved_frame(

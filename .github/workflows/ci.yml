@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend quality and tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: concord
+          POSTGRES_PASSWORD: concord
+          POSTGRES_DB: concord_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U concord"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://concord:concord@localhost:5432/concord_test
+      SYNC_DATABASE_URL: postgresql+psycopg://concord:concord@localhost:5432/concord_test
+      REDIS_URL: redis://localhost:6379/0
+      JWT_SECRET: ci-only-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r backend/requirements.txt
+      - name: Ruff lint
+        run: ruff check app tests benchmarks
+        working-directory: backend
+      - name: Ruff formatting
+        run: ruff format --check app tests benchmarks
+        working-directory: backend
+      - name: Test with business-logic coverage gate
+        run: pytest -q --cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=80
+        working-directory: backend
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage.xml
+
+  frontend:
+    name: Frontend quality, tests, and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run lint
+        working-directory: frontend
+      - run: npm test
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - name: Dependency audit
+        run: npm audit --audit-level=moderate
+        working-directory: frontend
+
+  containers:
+    name: Container builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: false
+          tags: concord-backend:ci
+      - uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          push: false
+          tags: concord-frontend:ci

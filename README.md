@@ -1,28 +1,38 @@
 # Concord
 
-Concord is a collaborative code editor built with React, Monaco, Yjs, FastAPI,
-pycrdt, PostgreSQL, and Redis. The current implementation focuses on Milestone 1:
-authenticated sessions, username-based member management, role-based access,
-real-time editing, awareness/presence, reconnection, Redis recovery checkpoints,
-explicit PostgreSQL saves, and live authorization revocation for connected
-clients. The Monaco/Yjs workspace is lazy-loaded so auth and dashboard users do
-not download the editor bundle.
+Concord is a collaborative code editor and sandboxed execution platform built
+with React, Monaco, Yjs, FastAPI, pycrdt, PostgreSQL, Redis, and Docker. Teams
+can edit a shared document, manage roles, explicitly save durable versions, and
+run Python, JavaScript, or C++ with live terminal output.
 
 ## Current status
 
-- Milestone 1: functional vertical slice; backend, frontend component, browser
-  E2E, and live three-client collaboration tests are available.
-- Milestone 2: execution state machine, persisted API, Redis transport, and the
-  isolated Docker worker are implemented. The trusted worker is enabled in
-  Compose with Docker-socket access. Streaming delivery and terminal UI are
-  next.
-- Milestone 3: snapshot schema only. Snapshot APIs, CI, benchmarks, expanded
-  test coverage, and horizontal-scaling experiments remain.
+- Milestone 1: complete. Authenticated collaboration, RBAC, presence,
+  reconnection, recovery checkpoints, explicit saves, and live authorization
+  revocation are covered by automated and live tests.
+- Milestone 2: complete. The persisted execution state machine, reliable Redis
+  queue, isolated Docker worker, Python/JavaScript/C++ runtimes, live output,
+  cancellation, timeout enforcement, resource limits, execution history, and
+  terminal UI are implemented.
+- Milestone 3: complete. Named snapshots and live restore, an 80% business-logic
+  coverage gate, frontend component/browser tests, GitHub Actions, reproducible
+  WebSocket/execution/snapshot benchmarks, and the Redis fan-out scaling design
+  and prototype are included.
 
 Collaboration deliberately runs in one backend process. Its in-memory Y.Doc is
 authoritative while users are connected, periodically checkpointed to Redis for
 crash recovery, and saved to PostgreSQL when an editor explicitly saves. Multiple
 Uvicorn workers are not supported in V1.
+
+```mermaid
+flowchart LR
+  UI[React + Monaco + Yjs] <-->|y-websocket| API[FastAPI / in-memory Y.Doc]
+  API --> PG[(PostgreSQL saves, users, sessions, runs, snapshots)]
+  API --> Redis[(Redis checkpoints and execution queue)]
+  Redis --> Worker[Docker execution worker]
+  Worker --> Sandbox[Restricted language container]
+  Worker -->|live events| Redis
+```
 
 ## Run locally
 
@@ -60,8 +70,9 @@ Backend:
 ```powershell
 cd backend
 .\venv\Scripts\python.exe -m pytest -q
-.\venv\Scripts\ruff.exe check app tests
-.\venv\Scripts\ruff.exe format --check app tests
+.\venv\Scripts\python.exe -m pytest --cov=app --cov-fail-under=80
+.\venv\Scripts\ruff.exe check app tests benchmarks
+.\venv\Scripts\ruff.exe format --check app tests benchmarks
 ```
 
 Frontend:
@@ -81,13 +92,44 @@ demotion, removal, and session-close enforcement:
 ```powershell
 cd frontend
 npm.cmd run smoke:collaboration
+npm.cmd run smoke:execution
 npx.cmd playwright install chromium
 npm.cmd run test:e2e
 ```
 
-The smoke and browser E2E tests create uniquely named users and close their
-temporary sessions. The browser flow also verifies username invitations, role
-changes, and member removal.
+The execution smoke test covers incremental output, all three languages,
+compiler errors, cancellation, timeout, network isolation, the hard memory
+limit, and sandbox cleanup. The browser flow covers Monaco editing, Run and
+terminal output in addition to saves, invitations, role changes, and removal.
+
+## Snapshots
+
+Editors and owners can create a named snapshot from the right sidebar. Every
+member can browse snapshot metadata. Restoring emits an ordinary Yjs edit, so
+connected peers converge immediately; the restored draft remains marked
+unsaved until an editor explicitly saves it to PostgreSQL.
+
+## Benchmarks
+
+With Compose running, execute the default Milestone 3 sweep from `backend/`:
+
+```powershell
+.\venv\Scripts\python.exe -m benchmarks.bench_websocket
+.\venv\Scripts\python.exe -m benchmarks.bench_execution
+.\venv\Scripts\python.exe -m benchmarks.bench_snapshots
+```
+
+Results are written as timestamped JSON plus Markdown tables under
+`backend/benchmarks/results/`. See [benchmark options](backend/benchmarks/README.md)
+and the [horizontal-scaling design](docs/horizontal-scaling.md). Generated
+numbers are environment-specific and are intentionally not presented as
+universal performance claims.
+
+Latest local Docker baseline (September 17, 2026): 100 WebSocket clients
+connected with 100% measured update delivery (p95 748 ms, 108 MB peak backend
+memory); the single execution worker sustained about 1.9 jobs/s at 20 queued
+jobs with no timeouts; a 1 MB snapshot created in 48 ms and restored in 40 ms.
+Raw measurements and every sweep level are retained in the results directory.
 
 ## Configuration
 
@@ -113,8 +155,8 @@ The Compose worker mounts `/var/run/docker.sock`, which effectively grants the
 trusted worker control of the Docker daemon. User code never receives that
 socket; it runs in separate restricted containers.
 
-## Next milestone
+## Delivery pipeline
 
-Continue Milestone 2 with the isolated Docker worker for
-Python/JavaScript/C++, live output events, worker-side cancellation/timeout
-behavior, and the frontend output panel.
+`.github/workflows/ci.yml` runs Ruff, the backend business-logic coverage gate,
+frontend lint/tests/type checking/production build, dependency audit, and both
+Docker image builds on pull requests and pushes to `main`.

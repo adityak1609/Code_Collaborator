@@ -10,6 +10,8 @@ from redis.asyncio import Redis
 from app.config import settings
 
 EXECUTION_QUEUE_KEY = "concord:execution:queue"
+EXECUTION_PROCESSING_QUEUE_KEY = "concord:execution:processing"
+EXECUTION_EVENT_CHANNEL_PREFIX = "concord:execution:events:"
 
 
 class RedisExecutionClient(Protocol):
