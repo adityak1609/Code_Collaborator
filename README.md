@@ -5,6 +5,28 @@ with React, Monaco, Yjs, FastAPI, pycrdt, PostgreSQL, Redis, and Docker. Teams
 can edit a shared document, manage roles, explicitly save durable versions, and
 run Python, JavaScript, or C++ with live terminal output.
 
+![Concord collaborative workspace with Monaco, snapshots, members, and live execution output](docs/assets/concord-workspace-desktop.png)
+
+<details>
+<summary>Mobile workspace</summary>
+
+![Concord mobile workspace](docs/assets/concord-workspace-mobile.png)
+
+</details>
+
+## Engineering highlights
+
+- CRDT-based editor synchronization with live cursors, reconnect recovery, and
+  server-enforced owner/editor/viewer permissions.
+- Isolated Python, JavaScript, and C++ execution with live output, cancellation,
+  timeouts, no network, a read-only filesystem, non-root users, and hard
+  CPU/memory/process limits.
+- 100% measured WebSocket update delivery at 100 concurrent clients in the
+  retained local benchmark, with 748 ms p95 latency and 108 MB peak backend
+  memory.
+- 91 backend tests, an 85% business-logic coverage gate, 11 frontend component
+  tests, browser E2E, security smoke tests, and automated Docker builds in CI.
+
 ## Current status
 
 - Milestone 1: complete. Authenticated collaboration, RBAC, presence,

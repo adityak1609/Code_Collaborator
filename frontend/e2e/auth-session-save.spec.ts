@@ -65,13 +65,6 @@ test('registers, creates a collaborative session, connects, and saves', async ({
       { timeout: 20_000 },
     );
     await expect(page.locator('.execution-status')).toHaveText('COMPLETED');
-    if (process.env.E2E_SCREENSHOT) {
-      await page.screenshot({ path: 'test-results/workspace-desktop.png' });
-      await page.setViewportSize({ width: 640, height: 900 });
-      await page.screenshot({ path: 'test-results/workspace-mobile.png' });
-      await page.setViewportSize({ width: 1280, height: 720 });
-    }
-
     const saveButton = page.getByRole('button', { name: 'Save', exact: true });
     await expect(saveButton).toBeEnabled({ timeout: 15_000 });
     await saveButton.click();
@@ -100,6 +93,12 @@ test('registers, creates a collaborative session, connects, and saves', async ({
         === 'console.log("browser-execution-ok");';
     });
     await expect(page.getByText('Unsaved changes')).toBeVisible();
+    if (process.env.E2E_SCREENSHOT) {
+      await page.screenshot({ path: 'test-results/workspace-desktop.png' });
+      await page.setViewportSize({ width: 640, height: 900 });
+      await page.screenshot({ path: 'test-results/workspace-mobile.png' });
+      await page.setViewportSize({ width: 1280, height: 720 });
+    }
 
     await page.getByLabel('Invite by username').fill(inviteeUsername);
     await page.getByLabel('Invitation role').selectOption('viewer');
