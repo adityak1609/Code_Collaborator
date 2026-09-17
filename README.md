@@ -5,7 +5,17 @@ with React, Monaco, Yjs, FastAPI, pycrdt, PostgreSQL, Redis, and Docker. Teams
 can edit a shared document, manage roles, explicitly save durable versions, and
 run Python, JavaScript, or C++ with live terminal output.
 
+![Concord live collaboration with named remote cursors and sandboxed execution](docs/assets/concord-live-collaboration.gif)
+
+Two authenticated editors sharing a Yjs document in real time, with named
+remote cursors and sandboxed JavaScript output streamed into the terminal.
+
+<details>
+<summary>Desktop workspace screenshot</summary>
+
 ![Concord collaborative workspace with Monaco, snapshots, members, and live execution output](docs/assets/concord-workspace-desktop.png)
+
+</details>
 
 <details>
 <summary>Mobile workspace</summary>
@@ -24,7 +34,7 @@ run Python, JavaScript, or C++ with live terminal output.
 - 100% measured WebSocket update delivery at 100 concurrent clients in the
   retained local benchmark, with 748 ms p95 latency and 108 MB peak backend
   memory.
-- 91 backend tests, an 85% business-logic coverage gate, 11 frontend component
+- 92 backend tests, an 85% business-logic coverage gate, 11 frontend component
   tests, browser E2E, security smoke tests, and automated Docker builds in CI.
 
 ## Current status
@@ -128,6 +138,10 @@ The execution smoke test covers incremental output, all three languages,
 compiler errors, cancellation, timeout, network isolation, the hard memory
 limit, and sandbox cleanup. The browser flow covers Monaco editing, Run and
 terminal output in addition to saves, invitations, role changes, and removal.
+
+To refresh the README demo with two real browser clients, point
+`FFMPEG_PATH` at an FFmpeg-compatible executable and run
+`npm.cmd run capture:demo` from `frontend/`.
 
 ## Snapshots
 

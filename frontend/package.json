@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "capture:demo": "node scripts/capture-demo.mjs",
     "smoke:collaboration": "node scripts/smoke-collaboration.mjs",
     "smoke:execution": "node scripts/smoke-execution.mjs",
     "preview": "vite preview"
@@ -39,8 +40,10 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
+    "gifenc": "^1.0.3",
     "jsdom": "^29.1.1",
     "oxlint": "^1.81.0",
+    "pngjs": "^7.0.0",
     "typescript": "~6.0.2",
     "vite": "^8.3.0",
     "vitest": "^4.1.11"

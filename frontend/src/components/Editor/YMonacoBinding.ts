@@ -228,9 +228,14 @@ export class YMonacoBinding {
         const candidateColor = state.user?.color;
         const color = typeof candidateColor === 'string' &&
           /^#[0-9a-f]{6}$/i.test(candidateColor) ? candidateColor : '#7c8cff';
+        const candidateName = state.user?.name;
+        const name = typeof candidateName === 'string' && candidateName.trim()
+          ? candidateName.trim().slice(0, 32)
+          : 'Collaborator';
         styleRules.push(
           `.yRemoteSelection-${clientId}{background:${color}2f}`,
-          `.${headClass}{border-left:2px solid ${color};height:1.25em}`,
+          `.${headClass}{border-left:2px solid ${color};height:1.25em;position:relative}`,
+          `.${headClass}::after{background:${color};border-radius:4px 4px 4px 0;color:#fff;content:${JSON.stringify(name)};font:600 10px/1.5 Inter,system-ui,sans-serif;left:-2px;padding:1px 5px;pointer-events:none;position:absolute;top:-1.65em;white-space:nowrap;z-index:20}`,
         );
       });
       this.decorations.set(
