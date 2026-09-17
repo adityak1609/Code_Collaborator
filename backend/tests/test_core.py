@@ -15,7 +15,7 @@ from app.auth.service import (
     verify_password,
 )
 from app.collaboration.presence import PresenceManager, color_for_user
-from app.config import settings
+from app.config import Settings, settings
 from app.main import _RedactTokenQueryFilter
 from app.models import Execution, ExecutionStatus, LanguageEnum
 
@@ -68,6 +68,22 @@ def test_websocket_tokens_are_redacted_from_log_arguments() -> None:
     assert _RedactTokenQueryFilter().filter(record)
     assert "secret-token" not in record.getMessage()
     assert "token=[REDACTED]&mode=test" in record.getMessage()
+
+
+def test_cors_origins_can_be_configured_from_json_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "CORS_ORIGINS",
+        '["https://demo.example.com","https://review.example.com"]',
+    )
+
+    configured = Settings(_env_file=None)
+
+    assert configured.cors_origins == [
+        "https://demo.example.com",
+        "https://review.example.com",
+    ]
 
 
 def test_execution_state_machine_accepts_forward_transitions() -> None:

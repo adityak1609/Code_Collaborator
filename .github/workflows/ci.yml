@@ -96,5 +96,6 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: frontend
+          file: frontend/Dockerfile.prod
           push: false
           tags: concord-frontend:ci

@@ -68,6 +68,11 @@ docker compose ps --all
 Open <http://localhost:5173>. The API health endpoint is
 <http://localhost:8000/health>.
 
+For a public HTTPS deployment with the full Docker execution worker, follow the
+[Oracle Cloud Always Free guide](docs/oracle-deployment.md). The production
+stack keeps PostgreSQL and Redis private and uses Caddy for automatic TLS plus
+same-origin API/WebSocket routing.
+
 The migration service runs `alembic upgrade head` before the backend starts.
 PostgreSQL and Redis use host ports `5433` and `6380` by default so they can
 coexist with common local installations. Override them when needed:

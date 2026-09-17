@@ -1,0 +1,137 @@
+name: concord
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: concord
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: concord
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U concord"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    build:
+      context: ../../backend
+    restart: "no"
+    command: alembic upgrade head
+    environment:
+      DATABASE_URL: postgresql+psycopg://concord:${POSTGRES_PASSWORD}@postgres:5432/concord
+      SYNC_DATABASE_URL: postgresql+psycopg://concord:${POSTGRES_PASSWORD}@postgres:5432/concord
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    build:
+      context: ../../backend
+    restart: unless-stopped
+    command: >-
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
+      --proxy-headers --forwarded-allow-ips=*
+    environment:
+      DATABASE_URL: postgresql+psycopg://concord:${POSTGRES_PASSWORD}@postgres:5432/concord
+      SYNC_DATABASE_URL: postgresql+psycopg://concord:${POSTGRES_PASSWORD}@postgres:5432/concord
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      CORS_ORIGINS: '["https://${DOMAIN}"]'
+      CRDT_FLUSH_INTERVAL_SECONDS: ${CRDT_FLUSH_INTERVAL_SECONDS:-30}
+      CRDT_MAX_UPDATE_BYTES: ${CRDT_MAX_UPDATE_BYTES:-5242880}
+      CRDT_CHECKPOINT_TTL_SECONDS: ${CRDT_CHECKPOINT_TTL_SECONDS:-604800}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')
+      interval: 15s
+      timeout: 3s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    build:
+      context: ../../backend
+    restart: unless-stopped
+    command: python -m app.execution.worker
+    environment:
+      DATABASE_URL: postgresql+psycopg://concord:${POSTGRES_PASSWORD}@postgres:5432/concord
+      SYNC_DATABASE_URL: postgresql+psycopg://concord:${POSTGRES_PASSWORD}@postgres:5432/concord
+      REDIS_URL: redis://redis:6379/0
+      EXECUTION_TIMEOUT_SECONDS: ${EXECUTION_TIMEOUT_SECONDS:-10}
+      EXECUTION_MEMORY_LIMIT: ${EXECUTION_MEMORY_LIMIT:-128m}
+      EXECUTION_CPU_LIMIT: ${EXECUTION_CPU_LIMIT:-1}
+      EXECUTION_PIDS_LIMIT: ${EXECUTION_PIDS_LIMIT:-32}
+      EXECUTION_OUTPUT_LIMIT_BYTES: ${EXECUTION_OUTPUT_LIMIT_BYTES:-262144}
+      EXECUTION_POLL_INTERVAL_SECONDS: 0.25
+    volumes:
+      # The trusted worker controls Docker; sandbox containers never receive it.
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:

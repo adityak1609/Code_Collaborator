@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60
 
+    # Browser origins allowed to call the API directly. Production uses a
+    # JSON-encoded CORS_ORIGINS value such as ["https://demo.example.com"].
+    cors_origins: list[str] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+
     # ── Execution sandbox ─────────────────────────────────────
     execution_timeout_seconds: int = 30
     execution_memory_limit: str = "256m"
